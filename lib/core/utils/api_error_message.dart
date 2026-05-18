@@ -4,6 +4,11 @@ import '../l10n/app_localizations.dart';
 /// Сообщение для пользователя из любой ошибки API/сети.
 String friendlyApiError(Object error, AppLocalizations l10n) {
   if (error is PlayGoApiException) {
+    if (error.statusCode == 403) {
+      final m = error.message.trim();
+      if (m.isNotEmpty && RegExp(r'[а-яА-ЯёЁ]').hasMatch(m)) return m;
+      return l10n.errorAccountBlocked;
+    }
     return userFriendlyServerMessage(error.message, l10n);
   }
   final s = error.toString().toLowerCase();
@@ -28,31 +33,6 @@ String userFriendlyServerMessage(String? raw, AppLocalizations l10n) {
 
   final lower = t.toLowerCase();
 
-  // Карточка игрока (англ. сообщения с API)
-  if (lower.contains('favoriteformat') && lower.contains('invalid')) {
-    return l10n.errorFavoriteFormatInvalid;
-  }
-  if (lower.contains('preferredfoot') && lower.contains('invalid')) {
-    return l10n.errorPreferredFootInvalid;
-  }
-  if (lower.contains('skilltag') &&
-      (lower.contains('invalid') ||
-          lower.contains('at least') ||
-          lower.contains('required'))) {
-    return l10n.errorStrongSidesRequired;
-  }
-  if (lower.contains('strong side') ||
-      lower.contains('strongside') ||
-      (lower.contains('strong') && lower.contains('at least'))) {
-    return l10n.errorStrongSidesRequired;
-  }
-  if (lower.contains('status') &&
-      (lower.contains('at least') || lower.contains('choose'))) {
-    return l10n.errorStatusesRequired;
-  }
-  if (lower.contains('captain role cannot be changed')) {
-    return l10n.errorCaptainRolePatch;
-  }
   if (lower.contains('validation') || lower.contains('bad request')) {
     return l10n.errorValidation;
   }
@@ -63,6 +43,15 @@ String userFriendlyServerMessage(String? raw, AppLocalizations l10n) {
       lower.contains('invalid token') ||
       lower.contains('jwt')) {
     return l10n.errorUnauthorized;
+  }
+  if (lower.contains('auth required')) {
+    return l10n.subscriptionAdminEndpointDenied;
+  }
+  if (lower.contains('forbidden') ||
+      lower == '403' ||
+      lower.contains('blocked') ||
+      lower.contains('banned')) {
+    return l10n.errorAccountBlocked;
   }
   if (lower.contains('invalid credentials') ||
       lower.contains('wrong password') ||

@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/shell_layout.dart';
+import '../../../core/l10n/app_localizations.dart';
+import '../../../core/utils/api_error_message.dart';
+import '../../../core/widgets/shell_nav_bar_spacer.dart';
 import '../models/sports_club.dart';
 import '../providers/sports_clubs_provider.dart';
 
@@ -60,14 +65,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               Expanded(
                 child: filtered.isEmpty
-                    ? const _EmptyState()
+                    ? Column(
+                        children: [
+                          const Expanded(child: _EmptyState()),
+                          const ShellNavBarSpacer(),
+                        ],
+                      )
                     : RefreshIndicator(
                         onRefresh: () async {
                           ref.invalidate(sportsClubsFeedProvider);
                           await ref.read(sportsClubsFeedProvider.future);
                         },
                         child: ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                           itemCount: filtered.length,
                           separatorBuilder: (_, _) => const SizedBox(height: 10),
                           itemBuilder: (context, index) {
@@ -84,6 +94,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
+              const ShellNavBarSpacer(),
             ],
           );
         },
@@ -92,7 +103,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Text(
-              'Не удалось загрузить ленту клубов.\n$error',
+              AppLocalizations.of(context) != null
+                  ? friendlyApiError(error, AppLocalizations.of(context)!)
+                  : error.toString(),
               textAlign: TextAlign.center,
             ),
           ),
@@ -102,7 +115,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   List<String> _extractCityAreaOptions(List<SportsClub> clubs) {
-    final values = clubs.map((c) => '${c.city} / ${c.district}').toSet().toList()
+    final values = clubs.map((c) => c.cityAreaLabel).toSet().toList()
       ..sort();
     return <String>[_allFilterValue, ...values];
   }
@@ -114,7 +127,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   List<SportsClub> _applyFilters(List<SportsClub> clubs) {
     return clubs.where((club) {
-      final cityAreaLabel = '${club.city} / ${club.district}';
+      final cityAreaLabel = club.cityAreaLabel;
       final cityMatches =
           _selectedCityArea == _allFilterValue || _selectedCityArea == cityAreaLabel;
       final sportMatches = _selectedSport == _allFilterValue || _selectedSport == club.sport;
@@ -158,7 +171,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   16,
                   8,
                   16,
-                  16 + MediaQuery.viewInsetsOf(context).bottom,
+                  16 +
+                      MediaQuery.viewInsetsOf(context).bottom +
+                      ShellLayout.floatingNavClearancePadding(context),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -281,11 +296,14 @@ class _ClubCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => context.push('/club/${club.id}'),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Text(
               club.name,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -298,7 +316,7 @@ class _ClubCard extends StatelessWidget {
               runSpacing: 6,
               children: [
                 Chip(label: Text(club.sport)),
-                Chip(label: Text('${club.city}, ${club.district}')),
+                Chip(label: Text(club.cityAreaLabel)),
                 Chip(label: Text('${club.minAge}-${club.maxAge} лет')),
               ],
             ),
@@ -313,6 +331,7 @@ class _ClubCard extends StatelessWidget {
                   ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ],
+        ),
         ),
       ),
     );

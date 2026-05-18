@@ -7,6 +7,8 @@ class UserModel {
   final String city;
   final String username;
   final String? photoPath;
+  /// Аккаунт заблокирован на платформе (если бэкенд отдаёт флаг в профиле / карточке).
+  final bool isBlocked;
 
   const UserModel({
     this.id = '',
@@ -16,6 +18,7 @@ class UserModel {
     required this.city,
     required this.username,
     this.photoPath,
+    this.isBlocked = false,
   });
 
   String get fullName => '$firstName $lastName'.trim();

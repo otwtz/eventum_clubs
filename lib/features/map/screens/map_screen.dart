@@ -3,8 +3,10 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_animations/flutter_map_animations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 
+import '../../../../core/constants/shell_layout.dart';
 import '../../../../core/l10n/app_localizations.dart';
 import '../../../../core/providers/map_preferences_provider.dart';
 import '../../../../core/utils/city_coordinates.dart';
@@ -49,7 +51,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final clubsAsync = ref.watch(sportsClubsFeedProvider);
     final savedPosition = ref.watch(mapPreferencesProvider);
     final userCity = ref.watch(userResidenceCityProvider);
@@ -66,9 +67,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.map),
-      ),
       body: clubsAsync.when(
         data: (clubs) => _MapContent(
           animatedMapController: _animatedMapController,
@@ -110,8 +108,58 @@ class _MapContent extends StatefulWidget {
 
 class _MapContentState extends State<_MapContent> {
   LatLng? _userLocation;
+  LatLng? _lastKnownForSort;
   bool _locationLoading = false;
   String? _locationError;
+
+  /// Не более 10 ближайших к якорной точке клубов на полосе над навигацией.
+  static const int _maxNearbyChips = 10;
+  static const double _nearbyBarHeight = 60;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLastKnownForNearby();
+  }
+
+  Future<void> _loadLastKnownForNearby() async {
+    try {
+      final p = await Geolocator.getLastKnownPosition();
+      if (!mounted || p == null) return;
+      setState(() {
+        _lastKnownForSort = LatLng(p.latitude, p.longitude);
+      });
+    } catch (_) {}
+  }
+
+  LatLng _anchorForNearbySort() {
+    return _userLocation ?? _lastKnownForSort ?? widget.initialCenter;
+  }
+
+  List<SportsClub> _nearestClubsWithCoords(List<SportsClub> clubs) {
+    final withCoords = clubs
+        .where((c) => c.latitude != 0 || c.longitude != 0)
+        .toList();
+    if (withCoords.isEmpty) return const [];
+    final anchor = _anchorForNearbySort();
+    withCoords.sort((a, b) {
+      final da = Geolocator.distanceBetween(
+        anchor.latitude,
+        anchor.longitude,
+        a.latitude,
+        a.longitude,
+      );
+      final db = Geolocator.distanceBetween(
+        anchor.latitude,
+        anchor.longitude,
+        b.latitude,
+        b.longitude,
+      );
+      return da.compareTo(db);
+    });
+    if (withCoords.length <= _maxNearbyChips) return withCoords;
+    return withCoords.sublist(0, _maxNearbyChips);
+  }
 
   Future<void> _centerOnUser() async {
     final l10n = AppLocalizations.of(context)!;
@@ -177,31 +225,145 @@ class _MapContentState extends State<_MapContent> {
     widget.animatedMapController.animatedZoomOut();
   }
 
-  /// OSM + запасной CDN (Carto). Тёмная тема: сразу Carto dark (без «светлых» кешированных OSM).
+  void _showMapClubPreview(BuildContext context, SportsClub club) {
+    final l10n = AppLocalizations.of(context)!;
+    final scheme = Theme.of(context).colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              4,
+              20,
+              16 + ShellLayout.floatingNavClearancePadding(sheetContext),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.apartment_rounded, color: scheme.primary, size: 28),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        club.name,
+                        style: Theme.of(sheetContext).textTheme.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text(club.sport),
+                    ),
+                    Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text(club.cityAreaLabel),
+                    ),
+                    Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text('${club.minAge}–${club.maxAge}'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.place_outlined, size: 20, color: scheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        club.address,
+                        style: Theme.of(sheetContext).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+                if (club.description.trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    club.description,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.35,
+                        ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  l10n.mapClubBriefHint,
+                  style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    if (context.mounted) {
+                      context.push('/club/${club.id}');
+                    }
+                  },
+                  child: Text(l10n.mapGoToSchedule),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Тёмная тема: нативно тёмные тайлы Carto. Не использовать
+  /// [darkModeTilesContainerBuilder] — он инвертирует цвета и портит уже тёмные тайлы.
   Widget _buildTileLayer(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final tileProvider = NetworkTileProvider(silenceExceptions: true);
-    final tileLayer = TileLayer(
-      urlTemplate: isDark
-          ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-          : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      fallbackUrl: isDark
-          ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-          : 'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    if (isDark) {
+      return TileLayer(
+        urlTemplate:
+            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        subdomains: const ['a', 'b', 'c', 'd'],
+        fallbackUrl:
+            'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        userAgentPackageName: 'com.eventum.play_go',
+        tileProvider: tileProvider,
+      );
+    }
+    return TileLayer(
+      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      fallbackUrl:
+          'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
       userAgentPackageName: 'com.eventum.play_go',
       tileProvider: tileProvider,
     );
-    if (isDark) {
-      return darkModeTilesContainerBuilder(context, tileLayer);
-    }
-    return tileLayer;
   }
 
   @override
   Widget build(BuildContext context) {
+    final navPad = ShellLayout.navBarSpacerHeight(context);
+
     final withCoords = widget.clubs
         .where((club) => club.latitude != 0 || club.longitude != 0)
         .toList();
+
+    final nearestRow = _nearestClubsWithCoords(widget.clubs);
+    final nearbyBarLift =
+        nearestRow.isEmpty ? 0.0 : _nearbyBarHeight;
 
     final markers = <Marker>[
       ...withCoords.map(
@@ -212,7 +374,7 @@ class _MapContentState extends State<_MapContent> {
           alignment: Alignment.topCenter,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => _showClubInfo(context, club),
+            onTap: () => _showMapClubPreview(context, club),
             child: const _ClubMarker(),
           ),
         ),
@@ -273,8 +435,8 @@ class _MapContentState extends State<_MapContent> {
           ),
         Positioned(
           right: 16,
-          top: 0,
-          bottom: 0,
+          top: MediaQuery.of(context).padding.top + 12,
+          bottom: navPad + 12 + nearbyBarLift,
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -308,7 +470,7 @@ class _MapContentState extends State<_MapContent> {
           Positioned(
             left: 16,
             right: 16,
-            bottom: 24,
+            bottom: navPad + nearbyBarLift + 8,
             child: Material(
               color: Theme.of(context).colorScheme.errorContainer,
               borderRadius: BorderRadius.circular(8),
@@ -334,56 +496,81 @@ class _MapContentState extends State<_MapContent> {
               ),
             ),
           ),
+        if (nearestRow.isNotEmpty)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: navPad,
+            height: _nearbyBarHeight,
+            child: _NearbyClubsStrip(
+              clubs: nearestRow,
+              onSelect: (club) {
+                widget.animatedMapController.centerOnPoint(
+                  LatLng(club.latitude, club.longitude),
+                  zoom: 15,
+                );
+              },
+            ),
+          ),
       ],
     );
   }
+}
 
-  void _showClubInfo(BuildContext context, SportsClub club) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  club.name,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    Chip(label: Text(club.sport)),
-                    Chip(label: Text('${club.city}, ${club.district}')),
-                    Chip(label: Text('${club.minAge}-${club.maxAge} лет')),
+class _NearbyClubsStrip extends StatelessWidget {
+  const _NearbyClubsStrip({
+    required this.clubs,
+    required this.onSelect,
+  });
+
+  final List<SportsClub> clubs;
+  final ValueChanged<SportsClub> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final radius = BorderRadius.circular(8);
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      itemCount: clubs.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 8),
+      itemBuilder: (context, index) {
+        final club = clubs[index];
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 168),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => onSelect(club),
+              borderRadius: radius,
+              child: Ink(
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHigh,
+                  borderRadius: radius,
+                  boxShadow: [
+                    BoxShadow(
+                      color: scheme.shadow.withValues(alpha: 0.22),
+                      blurRadius: 5,
+                      offset: const Offset(0, 2),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  club.address,
-                  style: Theme.of(context).textTheme.bodyMedium,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Text(
+                    club.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: scheme.onSurface,
+                        ),
+                  ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  club.description,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'Данные временные. API подключим на следующем шаге.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+              ),
             ),
           ),
         );
@@ -459,7 +646,7 @@ class _UserLocationMarker extends StatelessWidget {
 class _ClubMarker extends StatelessWidget {
   const _ClubMarker();
 
-  static IconData get _stadiumGlyph => Icons.sports;
+  static IconData get _clubGlyph => Icons.apartment_rounded;
 
   static const double _iconMin = 8;
   static const double _iconMax = 24;
@@ -516,7 +703,7 @@ class _ClubMarker extends StatelessWidget {
                 ],
               ),
               child: Icon(
-                _stadiumGlyph,
+                _clubGlyph,
                 size: iconSize,
                 color: scheme.primary,
               ),

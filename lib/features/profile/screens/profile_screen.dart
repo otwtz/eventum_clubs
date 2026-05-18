@@ -5,13 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/api/play_go_api_client.dart';
+import '../../../../core/constants/shell_layout.dart';
 import '../../../../core/l10n/app_localizations.dart';
 import '../../../../core/utils/api_error_message.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/utils/team_input_utils.dart';
 import '../../../../core/providers/theme_provider.dart';
 import '../../../../core/l10n/language_button.dart';
+import '../../../../core/widgets/shell_nav_bar_spacer.dart';
 import '../../../../models/user_model.dart';
+
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
@@ -41,7 +44,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         return SafeArea(
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 24,
+                bottom: 24 + ShellLayout.floatingNavClearancePadding(ctx),
+              ),
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                 child: builder(ctx),
@@ -237,13 +245,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     lastName.isEmpty ||
                     city.isEmpty) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text(ctxL10n.fillAllFields)),
+                    SnackBar(
+                      content: Text(ctxL10n.fillAllFields),
+                      behavior: SnackBarBehavior.floating,
+                      margin: ShellLayout.snackBarMargin(ctx),
+                    ),
                   );
                   return;
                 }
                 if (!TeamInputUtils.isValidUsername(username)) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text(ctxL10n.inviteInvalidLoginOrEmail)),
+                    SnackBar(
+                      content: Text(ctxL10n.inviteInvalidLoginOrEmail),
+                      behavior: SnackBarBehavior.floating,
+                      margin: ShellLayout.snackBarMargin(ctx),
+                    ),
                   );
                   return;
                 }
@@ -259,7 +275,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   if (ctx.mounted) {
                     final cL10n = AppLocalizations.of(ctx)!;
                     ScaffoldMessenger.of(ctx).showSnackBar(
-                      SnackBar(content: Text(cL10n.profileUpdated)),
+                      SnackBar(
+                        content: Text(cL10n.profileUpdated),
+                        behavior: SnackBarBehavior.floating,
+                        margin: ShellLayout.snackBarMargin(ctx),
+                      ),
                     );
                   }
                 } on PlayGoApiException catch (e) {
@@ -269,6 +289,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       SnackBar(
                         content: Text(friendlyApiError(e, l)),
                         backgroundColor: Colors.red,
+                        behavior: SnackBarBehavior.floating,
+                        margin: ShellLayout.snackBarMargin(ctx),
                       ),
                     );
                   }
@@ -279,6 +301,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       SnackBar(
                         content: Text(friendlyApiError(e, l)),
                         backgroundColor: Colors.red,
+                        behavior: SnackBarBehavior.floating,
+                        margin: ShellLayout.snackBarMargin(ctx),
                       ),
                     );
                   }
@@ -347,19 +371,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 final confirm = confirmCtrl.text;
                 if (current.isEmpty || newP.isEmpty) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text(ctxL10n.fillPassword)),
+                    SnackBar(
+                      content: Text(ctxL10n.fillPassword),
+                      behavior: SnackBarBehavior.floating,
+                      margin: ShellLayout.snackBarMargin(ctx),
+                    ),
                   );
                   return;
                 }
                 if (newP.length < 6) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text(ctxL10n.passwordMin6)),
+                    SnackBar(
+                      content: Text(ctxL10n.passwordMin6),
+                      behavior: SnackBarBehavior.floating,
+                      margin: ShellLayout.snackBarMargin(ctx),
+                    ),
                   );
                   return;
                 }
                 if (newP != confirm) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text(ctxL10n.passwordsDontMatch)),
+                    SnackBar(
+                      content: Text(ctxL10n.passwordsDontMatch),
+                      behavior: SnackBarBehavior.floating,
+                      margin: ShellLayout.snackBarMargin(ctx),
+                    ),
                   );
                   return;
                 }
@@ -372,7 +408,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   if (ctx.mounted) {
                     final cL10n = AppLocalizations.of(ctx)!;
                     ScaffoldMessenger.of(ctx).showSnackBar(
-                      SnackBar(content: Text(cL10n.passwordChanged)),
+                      SnackBar(
+                        content: Text(cL10n.passwordChanged),
+                        behavior: SnackBarBehavior.floating,
+                        margin: ShellLayout.snackBarMargin(ctx),
+                      ),
                     );
                   }
                 } on PlayGoApiException catch (e) {
@@ -382,6 +422,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       SnackBar(
                         content: Text(friendlyApiError(e, l)),
                         backgroundColor: Colors.red,
+                        behavior: SnackBarBehavior.floating,
+                        margin: ShellLayout.snackBarMargin(ctx),
                       ),
                     );
                   }
@@ -392,6 +434,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       SnackBar(
                         content: Text(friendlyApiError(e, l)),
                         backgroundColor: Colors.red,
+                        behavior: SnackBarBehavior.floating,
+                        margin: ShellLayout.snackBarMargin(ctx),
                       ),
                     );
                   }
@@ -403,6 +447,87 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         );
       },
     );
+  }
+
+  static void _showDeleteAccount(BuildContext context, WidgetRef ref) {
+    final passwordCtrl = TextEditingController();
+    _showBlurOverlayDialog<void>(
+      context: context,
+      builder: (ctx) {
+        final ctxL10n = AppLocalizations.of(ctx)!;
+        final scheme = Theme.of(ctx).colorScheme;
+        return _overlayDialogCard(
+          context: ctx,
+          title: Text(ctxL10n.deleteAccountTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(ctxL10n.deleteAccountBody),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passwordCtrl,
+                obscureText: true,
+                decoration: _overlayFieldDecoration(
+                  ctx,
+                  labelText: ctxL10n.deleteAccountPasswordHint,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(ctxL10n.cancel),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                try {
+                  await ref.read(authProvider.notifier).deleteAccount(
+                        password:
+                            passwordCtrl.text.trim().isEmpty
+                                ? null
+                                : passwordCtrl.text.trim(),
+                      );
+                  if (context.mounted) {
+                    context.go('/login');
+                  }
+                } on PlayGoApiException catch (e) {
+                  if (context.mounted) {
+                    final l = AppLocalizations.of(context)!;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(friendlyApiError(e, l)),
+                        backgroundColor: Colors.red.shade900,
+                        behavior: SnackBarBehavior.floating,
+                        margin: ShellLayout.snackBarMargin(context),
+                      ),
+                    );
+                  }
+                } catch (_) {
+                  if (context.mounted) {
+                    final l = AppLocalizations.of(context)!;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(l.genericNetworkError),
+                        backgroundColor: Colors.red.shade900,
+                        behavior: SnackBarBehavior.floating,
+                        margin: ShellLayout.snackBarMargin(context),
+                      ),
+                    );
+                  }
+                }
+              },
+              child: Text(
+                ctxL10n.deleteAccountConfirm,
+                style: TextStyle(color: scheme.error),
+              ),
+            ),
+          ],
+        );
+      },
+    ).whenComplete(() => passwordCtrl.dispose());
   }
 
   Widget _buildAuthenticatedProfile(
@@ -457,6 +582,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               color: Theme.of(context).colorScheme.primary,
                             ),
                           ),
+                          if (user.isBlocked) ...[
+                            const SizedBox(height: 8),
+                            Chip(
+                              avatar: Icon(
+                                Icons.block,
+                                size: 18,
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                              label: Text(l10n.blockedUserBadge),
+                              visualDensity: VisualDensity.compact,
+                              side: BorderSide(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 6),
                           Text(
                             user.fullName,
@@ -561,6 +701,47 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           elevation: 0.8,
           child: ListTile(
             leading: Icon(
+              Icons.card_membership_outlined,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: Text(l10n.mySubscriptionsTitle),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/profile/subscriptions'),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          elevation: 0.8,
+          child: ListTile(
+            leading: Icon(
+              Icons.sports_handball_outlined,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: Text(l10n.coachProfileTitle),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/profile/coach'),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          elevation: 0.8,
+          child: ListTile(
+            leading: Icon(
+              Icons.delete_forever_outlined,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            title: Text(
+              l10n.deleteAccountTitle,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+            onTap: () => _showDeleteAccount(context, ref),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          elevation: 0.8,
+          child: ListTile(
+            leading: Icon(
               themeMode == ThemeMode.dark
                   ? Icons.light_mode
                   : Icons.dark_mode,
@@ -594,6 +775,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             },
           ),
         ),
+        const ShellNavBarSpacer(),
       ],
     );
   }

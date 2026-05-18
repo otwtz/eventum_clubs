@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/constants/shell_layout.dart';
 import '../../core/l10n/app_localizations.dart';
 
 class ShellScreen extends StatelessWidget {
@@ -18,17 +17,13 @@ class ShellScreen extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final contentBottom = ShellLayout.contentBottomPadding(context);
-
     return Scaffold(
       extendBody: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Padding(
-            padding: EdgeInsets.only(bottom: contentBottom),
-            child: child,
-          ),
+          child,
           Positioned(
             left: 16,
             right: 16,
@@ -37,6 +32,11 @@ class ShellScreen extends StatelessWidget {
               selectedIndex: _calculateSelectedIndex(context),
               onDestinationSelected: (index) => _onItemTapped(index, context),
               items: [
+                _NavItemData(
+                  icon: Icons.newspaper_outlined,
+                  selectedIcon: Icons.newspaper,
+                  label: l10n.news,
+                ),
                 _NavItemData(
                   icon: Icons.home_outlined,
                   selectedIcon: Icons.home,
@@ -64,21 +64,26 @@ class ShellScreen extends StatelessWidget {
 
   int _calculateSelectedIndex(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
-    if (location.startsWith('/home')) return 0;
-    if (location.startsWith('/map')) return 1;
-    if (location.startsWith('/profile')) return 2;
+    if (location.startsWith('/news')) return 0;
+    if (location.startsWith('/home')) return 1;
+    if (location.startsWith('/club')) return 1;
+    if (location.startsWith('/map')) return 2;
+    if (location.startsWith('/profile')) return 3;
     return 0;
   }
 
   void _onItemTapped(int index, BuildContext context) {
     switch (index) {
       case 0:
-        context.go('/home');
+        context.go('/news');
         break;
       case 1:
-        context.go('/map');
+        context.go('/home');
         break;
       case 2:
+        context.go('/map');
+        break;
+      case 3:
         context.go('/profile');
         break;
     }

@@ -99,7 +99,7 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
             photoPath: _photoPath,
           );
       if (!mounted) return;
-      context.go('/home');
+      context.go('/news');
     } on PlayGoApiException catch (e) {
       if (mounted) {
         final l10n = AppLocalizations.of(context)!;

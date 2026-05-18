@@ -24,6 +24,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _obscurePassword = true;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _consumeBlockedNotice());
+  }
+
+  void _consumeBlockedNotice() {
+    final auth = ref.read(authProvider);
+    if (!mounted || auth.pendingNotice != AuthPendingNotice.accountBlocked) return;
+    final l10n = AppLocalizations.of(context)!;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(l10n.errorAccountBlocked),
+        backgroundColor: Colors.red,
+      ),
+    );
+    ref.read(authProvider.notifier).clearPendingNotice();
+  }
+
+  @override
   void dispose() {
     _identifierController.dispose();
     _passwordController.dispose();
@@ -39,7 +58,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             password: _passwordController.text,
           );
       if (!mounted) return;
-      context.go('/home');
+      context.go('/news');
     } on PlayGoApiException catch (e) {
       if (!mounted) return;
       final l10n = AppLocalizations.of(context)!;
@@ -81,7 +100,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Icon(
-                    Icons.sports_soccer,
+                    Icons.groups_rounded,
                     size: 80,
                     color: Theme.of(context).colorScheme.primary,
                   ),

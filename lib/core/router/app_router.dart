@@ -5,15 +5,19 @@ import '../providers/auth_provider.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/registration_screen.dart';
 import '../../features/shell/shell_screen.dart';
+import '../../features/home/screens/club_detail_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/map/screens/map_screen.dart';
+import '../../features/news/screens/news_screen.dart';
+import '../../features/profile/screens/my_subscriptions_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
+import '../../features/coach/screens/coach_profile_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
 
   return GoRouter(
-    initialLocation: authState.isAuthenticated ? '/home' : '/login',
+    initialLocation: authState.isAuthenticated ? '/news' : '/login',
     redirect: (context, state) {
       final isAuthenticated = authState.isAuthenticated;
       final location = state.matchedLocation;
@@ -23,7 +27,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         return '/login';
       }
       if (isAuthenticated && isAuthScreen) {
-        return '/home';
+        return '/news';
       }
       return null;
     },
@@ -40,6 +44,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state, child) => ShellScreen(child: child),
         routes: [
           GoRoute(
+            path: '/club/:id',
+            builder: (context, state) => ClubDetailScreen(
+              clubId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: '/news',
+            builder: (context, state) => const NewsScreen(),
+          ),
+          GoRoute(
             path: '/home',
             builder: (context, state) => const HomeScreen(),
           ),
@@ -50,6 +64,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/profile',
             builder: (context, state) => const ProfileScreen(),
+          ),
+          GoRoute(
+            path: '/profile/subscriptions',
+            builder: (context, state) => const MySubscriptionsScreen(),
+          ),
+          GoRoute(
+            path: '/profile/coach',
+            builder: (context, state) => const CoachProfileScreen(),
           ),
         ],
       ),

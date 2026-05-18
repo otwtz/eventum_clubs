@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../api/auth_session_bridge.dart';
 import '../api/play_go_api_client.dart';
 import '../../models/user_model.dart';
 
@@ -10,22 +9,18 @@ final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(PlayGoApiClient());
 });
 
+/// Одноразовое уведомление после принудительного выхода (например, блокировка).
+enum AuthPendingNotice { accountBlocked }
+
 class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier(this._api) : super(const AuthState.unauthenticated()) {
-    AuthSessionBridge.register(
-      accessToken: () => state.accessToken,
-      refreshAccessToken: tryRefreshTokens,
-    );
     _restoreSession();
   }
 
   final PlayGoApiClient _api;
   SharedPreferences get _prefs => GetIt.instance<SharedPreferences>();
 
-  Future<bool>? _tokenRefreshFuture;
-
   static const _keyAccessToken = 'playgo_access_token';
-  static const _keyRefreshToken = 'playgo_refresh_token';
   static const _keyUserId = 'playgo_user_id';
   static const _keyUserEmail = 'playgo_user_email';
   static const _keyUserUsername = 'playgo_user_username';
@@ -33,6 +28,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
   static const _keyUserLastName = 'playgo_user_last_name';
   static const _keyUserCity = 'playgo_user_city';
   static const _keyUserPhotoPath = 'playgo_user_photo_path';
+
+  /// Убрать [AuthPendingNotice] после показа пользователю.
+  void clearPendingNotice() {
+    final s = state;
+    if (!s.isAuthenticated && s.pendingNotice != null) {
+      state = const AuthState.unauthenticated();
+    }
+  }
 
   /// Восстанавливает сессию: сначала из локального хранилища (чтобы не вылетать из профиля),
   /// затем в фоне обновляет данные с сервера при наличии сети.
@@ -56,15 +59,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
         lastName: user.lastName,
         city: user.city,
         photoPath: photoPath,
+        isBlocked: user.isBlocked,
       );
       final access = state.accessToken ?? token;
       state = AuthState.authenticated(accessToken: access, user: updatedUser);
       await _saveSession(access, updatedUser);
     } on PlayGoApiException catch (e) {
-      // После неудачного refresh внутри [getMe] или без refresh-токена.
       if (e.statusCode == 401) {
         await _clearStorage();
         state = const AuthState.unauthenticated();
+        return;
+      }
+      if (e.statusCode == 403) {
+        await _signOutBlocked();
         return;
       }
       if (cachedUser == null) {
@@ -96,18 +103,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
       lastName: lastName ?? '',
       city: city ?? '',
       photoPath: photoPath,
+      isBlocked: false,
     );
   }
 
-  /// [refreshToken]: при [replaceStoredRefresh] == false — `null` не трогает prefs;
-  /// непустая строка — записать; `''` — удалить.
-  /// При [replaceStoredRefresh] == true (логин/регистрация): `null` или пусто — удалить refresh.
   Future<void> _saveSession(
     String token,
     UserModel user, {
     String? photoPath,
-    String? refreshToken,
-    bool replaceStoredRefresh = false,
   }) async {
     await _prefs.setString(_keyAccessToken, token);
     await _prefs.setString(_keyUserId, user.id);
@@ -119,25 +122,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (photoPath != null) {
       await _prefs.setString(_keyUserPhotoPath, photoPath);
     }
-    if (replaceStoredRefresh) {
-      final r = refreshToken?.trim();
-      if (r != null && r.isNotEmpty) {
-        await _prefs.setString(_keyRefreshToken, r);
-      } else {
-        await _prefs.remove(_keyRefreshToken);
-      }
-    } else if (refreshToken != null) {
-      if (refreshToken.isEmpty) {
-        await _prefs.remove(_keyRefreshToken);
-      } else {
-        await _prefs.setString(_keyRefreshToken, refreshToken);
-      }
-    }
   }
 
   Future<void> _clearStorage() async {
     await _prefs.remove(_keyAccessToken);
-    await _prefs.remove(_keyRefreshToken);
     await _prefs.remove(_keyUserId);
     await _prefs.remove(_keyUserEmail);
     await _prefs.remove(_keyUserUsername);
@@ -147,58 +135,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
     await _prefs.remove(_keyUserPhotoPath);
   }
 
-  /// Обновление access (и при необходимости refresh) по [POST /api/auth/refresh].
-  /// Параллельные вызовы сходятся в один запрос.
-  Future<bool> tryRefreshTokens() {
-    if (_tokenRefreshFuture != null) return _tokenRefreshFuture!;
-    final future = _performTokenRefresh();
-    _tokenRefreshFuture = future;
-    future.whenComplete(() => _tokenRefreshFuture = null);
-    return future;
-  }
-
-  Future<bool> _performTokenRefresh() async {
-    final refresh = _prefs.getString(_keyRefreshToken);
-    if (refresh == null || refresh.isEmpty) return false;
-    try {
-      final tr = await _api.refreshWithRefreshToken(refresh);
-      final photoPath =
-          state.user?.photoPath ?? _prefs.getString(_keyUserPhotoPath);
-      UserModel user;
-      try {
-        user = await _api.getMe(tr.accessToken, withAuthRetry: false);
-      } catch (_) {
-        final cached = state.user ?? _loadCachedUser();
-        if (cached == null) return false;
-        user = cached;
-      }
-      final updatedUser = UserModel(
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        city: user.city,
-        photoPath: photoPath,
-      );
-      await _saveSession(
-        tr.accessToken,
-        updatedUser,
-        refreshToken: tr.refreshToken,
-      );
-      state = AuthState.authenticated(
-        accessToken: tr.accessToken,
-        user: updatedUser,
-      );
-      return true;
-    } on PlayGoApiException catch (e) {
-      if (e.statusCode == 401) {
-        await _prefs.remove(_keyRefreshToken);
-      }
-      return false;
-    } catch (_) {
-      return false;
-    }
+  Future<void> _signOutBlocked() async {
+    await _clearStorage();
+    state = const AuthState.unauthenticated(
+      pendingNotice: AuthPendingNotice.accountBlocked,
+    );
   }
 
   Future<void> register({
@@ -226,13 +167,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       lastName: result.user.lastName,
       city: result.user.city,
       photoPath: photoPath,
+      isBlocked: result.user.isBlocked,
     );
     await _saveSession(
       result.accessToken,
       u,
       photoPath: photoPath,
-      refreshToken: result.refreshToken,
-      replaceStoredRefresh: true,
     );
     state = AuthState.authenticated(
       accessToken: result.accessToken,
@@ -254,13 +194,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       lastName: result.user.lastName,
       city: result.user.city,
       photoPath: photoPath,
+      isBlocked: result.user.isBlocked,
     );
     await _saveSession(
       result.accessToken,
       u,
       photoPath: photoPath,
-      refreshToken: result.refreshToken,
-      replaceStoredRefresh: true,
     );
     state = AuthState.authenticated(
       accessToken: result.accessToken,
@@ -269,6 +208,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    await _clearStorage();
+    state = const AuthState.unauthenticated();
+  }
+
+  /// DELETE /api/me — удаление аккаунта без повтора входа при успехе.
+  Future<void> deleteAccount({String? password}) async {
+    final token = state.accessToken;
+    if (token == null || token.isEmpty) return;
+    await _api.deleteMe(token, password: password);
     await _clearStorage();
     state = const AuthState.unauthenticated();
   }
@@ -289,6 +237,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         lastName: user.lastName,
         city: user.city,
         photoPath: photoPath,
+        isBlocked: user.isBlocked,
       );
       final access = state.accessToken ?? token;
       state = AuthState.authenticated(accessToken: access, user: updatedUser);
@@ -297,6 +246,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (e.statusCode == 401) {
         await _clearStorage();
         state = const AuthState.unauthenticated();
+      } else if (e.statusCode == 403) {
+        await _signOutBlocked();
       }
     } catch (_) {}
   }
@@ -312,35 +263,46 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final token = state.accessToken;
     if (token == null || token.isEmpty) return;
 
-    final user = await _api.updateMe(
-      token,
-      email: email,
-      username: username,
-      firstName: firstName,
-      lastName: lastName,
-      city: city,
-    );
-    final access = state.accessToken ?? token;
-    state = AuthState.authenticated(
-      accessToken: access,
-      user: UserModel(
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        city: user.city,
-        photoPath: state.user?.photoPath,
-      ),
-    );
-    await _saveSession(access, state.user!);
+    try {
+      final user = await _api.updateMe(
+        token,
+        email: email,
+        username: username,
+        firstName: firstName,
+        lastName: lastName,
+        city: city,
+      );
+      final access = state.accessToken ?? token;
+      state = AuthState.authenticated(
+        accessToken: access,
+        user: UserModel(
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          city: user.city,
+          photoPath: state.user?.photoPath,
+          isBlocked: user.isBlocked,
+        ),
+      );
+      await _saveSession(access, state.user!);
+    } on PlayGoApiException catch (e) {
+      if (e.statusCode == 403) await _signOutBlocked();
+      rethrow;
+    }
   }
 
   /// Проверка текущего пароля (POST /api/me/password/check).
   Future<void> checkPassword(String password) async {
     final token = state.accessToken;
     if (token == null || token.isEmpty) return;
-    await _api.checkPassword(token, password);
+    try {
+      await _api.checkPassword(token, password);
+    } on PlayGoApiException catch (e) {
+      if (e.statusCode == 403) await _signOutBlocked();
+      rethrow;
+    }
   }
 
   /// Смена пароля (POST /api/me/password).
@@ -350,7 +312,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }) async {
     final token = state.accessToken;
     if (token == null || token.isEmpty) return;
-    await _api.changePassword(token, oldPassword: oldPassword, newPassword: newPassword);
+    try {
+      await _api.changePassword(token, oldPassword: oldPassword, newPassword: newPassword);
+    } on PlayGoApiException catch (e) {
+      if (e.statusCode == 403) await _signOutBlocked();
+      rethrow;
+    }
   }
 }
 
@@ -358,12 +325,14 @@ class AuthState {
   final bool isAuthenticated;
   final String? accessToken;
   final UserModel? user;
+  final AuthPendingNotice? pendingNotice;
 
-  const AuthState.unauthenticated()
+  const AuthState.unauthenticated({this.pendingNotice})
       : isAuthenticated = false,
         accessToken = null,
         user = null;
 
   const AuthState.authenticated({required this.accessToken, required this.user})
-      : isAuthenticated = true;
+      : isAuthenticated = true,
+        pendingNotice = null;
 }

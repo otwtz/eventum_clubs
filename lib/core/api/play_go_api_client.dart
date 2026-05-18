@@ -4,7 +4,8 @@ import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
 import '../../models/user_model.dart';
-import 'auth_session_bridge.dart';
+import '../../models/user_subscription.dart';
+import '../../models/coach_profile.dart';
 
 /// Клиент EVENTUM API: auth (`/api/auth/*`), профиль (`/api/me`), пароль.
 class PlayGoApiClient {
@@ -19,19 +20,6 @@ class PlayGoApiClient {
       h['Authorization'] = 'Bearer $token';
     }
     return h;
-  }
-
-  Future<http.Response> _sendWithAuthRetry(
-    String token,
-    Future<http.Response> Function(String accessToken) send,
-  ) async {
-    var response = await send(token);
-    if (response.statusCode != 401) return response;
-    final refreshed = await AuthSessionBridge.runRefresh();
-    if (!refreshed) return response;
-    final next = AuthSessionBridge.accessToken;
-    if (next == null || next.isEmpty || next == token) return response;
-    return send(next);
   }
 
   void _throwFromResponse(http.Response response) {
@@ -93,7 +81,6 @@ class PlayGoApiClient {
     return AuthResult(
       accessToken: token,
       user: _userFromMap(userMap),
-      refreshToken: _parseOptionalRefreshToken(data),
     );
   }
 
@@ -122,47 +109,17 @@ class PlayGoApiClient {
     return AuthResult(
       accessToken: token,
       user: _userFromMap(userMap),
-      refreshToken: _parseOptionalRefreshToken(data),
-    );
-  }
-
-  /// POST /api/auth/refresh — новая пара токенов по refresh (EVENTUM).
-  ///
-  /// Тело: `{ "refreshToken": "..." }`. Ответ: `{ "accessToken", "refreshToken"? }`.
-  Future<TokenRefreshResult> refreshWithRefreshToken(String refreshToken) async {
-    final r = await _client
-        .post(
-          Uri.parse('$_baseUrl/api/auth/refresh'),
-          headers: _jsonHeaders(),
-          body: jsonEncode({'refreshToken': refreshToken}),
-        )
-        .timeout(const Duration(seconds: 15));
-
-    if (r.statusCode != 200) _throwFromResponse(r);
-
-    final data = jsonDecode(r.body) as Map<String, dynamic>;
-    final access = data['accessToken']?.toString() ?? '';
-    if (access.isEmpty) {
-      throw PlayGoApiException(r.statusCode, 'Нет accessToken в ответе refresh');
-    }
-    return TokenRefreshResult(
-      accessToken: access,
-      refreshToken: _parseOptionalRefreshToken(data),
     );
   }
 
   /// GET /api/me — профиль текущего пользователя.
-  ///
-  /// [withAuthRetry]: при `false` не повторять запрос после refresh (избегает рекурсии из [AuthNotifier]).
-  Future<UserModel> getMe(String token, {bool withAuthRetry = true}) async {
-    Future<http.Response> send(String t) => _client
+  Future<UserModel> getMe(String token) async {
+    final r = await _client
         .get(
           Uri.parse('$_baseUrl/api/me'),
-          headers: _jsonHeaders(token: t),
+          headers: _jsonHeaders(token: token),
         )
         .timeout(const Duration(seconds: 10));
-
-    final r = withAuthRetry ? await _sendWithAuthRetry(token, send) : await send(token);
 
     if (r.statusCode != 200) _throwFromResponse(r);
 
@@ -192,15 +149,13 @@ class PlayGoApiClient {
       body['username'] = u;
     }
 
-    Future<http.Response> send(String t) => _client
+    final r = await _client
         .patch(
           Uri.parse('$_baseUrl/api/me'),
-          headers: _jsonHeaders(token: t),
+          headers: _jsonHeaders(token: token),
           body: jsonEncode(body),
         )
         .timeout(const Duration(seconds: 10));
-
-    final r = await _sendWithAuthRetry(token, send);
 
     if (r.statusCode != 200) _throwFromResponse(r);
 
@@ -212,15 +167,13 @@ class PlayGoApiClient {
 
   /// POST /api/me/password/check — проверка текущего пароля. 204 при успехе.
   Future<void> checkPassword(String token, String password) async {
-    Future<http.Response> send(String t) => _client
+    final r = await _client
         .post(
           Uri.parse('$_baseUrl/api/me/password/check'),
-          headers: _jsonHeaders(token: t),
+          headers: _jsonHeaders(token: token),
           body: jsonEncode({'password': password}),
         )
         .timeout(const Duration(seconds: 10));
-
-    final r = await _sendWithAuthRetry(token, send);
 
     if (r.statusCode != 204) _throwFromResponse(r);
   }
@@ -231,10 +184,10 @@ class PlayGoApiClient {
     required String oldPassword,
     required String newPassword,
   }) async {
-    Future<http.Response> send(String t) => _client
+    final r = await _client
         .post(
           Uri.parse('$_baseUrl/api/me/password'),
-          headers: _jsonHeaders(token: t),
+          headers: _jsonHeaders(token: token),
           body: jsonEncode({
             'oldPassword': oldPassword,
             'newPassword': newPassword,
@@ -242,22 +195,256 @@ class PlayGoApiClient {
         )
         .timeout(const Duration(seconds: 10));
 
-    final r = await _sendWithAuthRetry(token, send);
-
     if (r.statusCode != 200) _throwFromResponse(r);
   }
 
-  String? _parseOptionalRefreshToken(Map<String, dynamic> data) {
-    final direct = data['refreshToken'] ?? data['refresh_token'];
-    final s1 = direct?.toString();
-    if (s1 != null && s1.isNotEmpty) return s1;
-    final tokens = data['tokens'];
-    if (tokens is Map) {
-      final t = tokens['refreshToken'] ?? tokens['refresh_token'];
-      final s2 = t?.toString();
-      if (s2 != null && s2.isNotEmpty) return s2;
+  /// DELETE /api/me — удаление аккаунта пользователя (безвозвратно, каскады на сервере).
+  ///
+  /// Некоторые развёртывания требуют подтверждение пароля: [password].
+  Future<void> deleteMe(
+    String token, {
+    String? password,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/api/me');
+    final headers = Map<String, String>.from(_jsonHeaders(token: token));
+    Object? body;
+    if (password != null && password.isNotEmpty) {
+      body = jsonEncode({'password': password.trim()});
+      headers.putIfAbsent('Content-Type', () => 'application/json');
     }
+
+    final r = await _client
+        .delete(uri, headers: headers, body: body)
+        .timeout(const Duration(seconds: 45));
+
+    if (r.statusCode != 200 && r.statusCode != 204) {
+      _throwFromResponse(r);
+    }
+  }
+
+  /// GET `/api/coach-profiles/me` — анкета тренера; 404 если ещё не создана.
+  Future<CoachProfile?> getMyCoachProfile(String token) async {
+    final r = await _client
+        .get(
+          Uri.parse('$_baseUrl/api/coach-profiles/me'),
+          headers: _jsonHeaders(token: token),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    if (r.statusCode == 404) return null;
+    if (r.statusCode != 200) _throwFromResponse(r);
+
+    final decoded = jsonDecode(r.body);
+    if (decoded is! Map) {
+      throw PlayGoApiException(r.statusCode, 'Ожидался объект coach profile');
+    }
+    return CoachProfile.fromJson(Map<String, dynamic>.from(decoded));
+  }
+
+  /// PUT `/api/coach-profiles/me` — создать/обновить анкету.
+  Future<CoachProfile> upsertMyCoachProfile(
+    String token,
+    Map<String, dynamic> body,
+  ) async {
+    final r = await _client
+        .put(
+          Uri.parse('$_baseUrl/api/coach-profiles/me'),
+          headers: _jsonHeaders(token: token),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 20));
+
+    if (r.statusCode != 200 && r.statusCode != 201 && r.statusCode != 204) {
+      _throwFromResponse(r);
+    }
+
+    if ((r.body).trim().isEmpty || r.body.trim() == 'null') {
+      final again = await getMyCoachProfile(token);
+      return again ??
+          CoachProfile(
+            id: '',
+            userId: '',
+            bio: '',
+            clubId: body['clubId']?.toString(),
+          );
+    }
+
+    final decoded = jsonDecode(r.body);
+    if (decoded is Map<String, dynamic>) {
+      return CoachProfile.fromJson(Map<String, dynamic>.from(decoded));
+    }
+    if (decoded is Map) {
+      return CoachProfile.fromJson(Map<String, dynamic>.from(decoded));
+    }
+    final again = await getMyCoachProfile(token);
+    return again ??
+        CoachProfile(id: '', userId: '', bio: '');
+  }
+
+  /// POST multipart `/api/coach-profiles/me/photo` — поле файла по умолчанию `photo`.
+  ///
+  /// Возвращает относительный путь загрузки (например `/uploads/coaches/...`), если есть в теле ответа.
+  Future<String?> uploadCoachProfilePhoto(
+    String token,
+    List<int> imageBytes,
+    String filename,
+  ) async {
+    final uri = Uri.parse('$_baseUrl/api/coach-profiles/me/photo');
+    final request = http.MultipartRequest('POST', uri);
+    request.headers['Authorization'] = 'Bearer $token';
+    request.headers['Accept'] = 'application/json';
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'photo',
+        imageBytes,
+        filename: filename,
+      ),
+    );
+
+    final streamed = await request.send().timeout(const Duration(seconds: 60));
+    final r = await http.Response.fromStream(streamed);
+
+    if (r.statusCode != 200 && r.statusCode != 201) _throwFromResponse(r);
+
+    if (r.body.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(r.body);
+      if (decoded is Map) {
+        final m = Map<String, dynamic>.from(decoded);
+        return m['photoUrl']?.toString() ??
+            m['url']?.toString() ??
+            m['path']?.toString();
+      }
+    } catch (_) {}
     return null;
+  }
+
+  /// GET `/api/ecosystem` — агрегат экосистемы (структура задаётся сервером).
+  ///
+  /// Требует Bearer там, где бэкенд закрывает маршрут.
+  Future<Map<String, dynamic>> getEcosystem(String token) async {
+    final r = await _client
+        .get(
+          Uri.parse('$_baseUrl/api/ecosystem'),
+          headers: _jsonHeaders(token: token),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    if (r.statusCode == 404) return {};
+    if (r.statusCode != 200) _throwFromResponse(r);
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(r.body);
+    } catch (_) {
+      return {};
+    }
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    return {};
+  }
+
+  /// GET /api/me/subscriptions — абонементы текущего пользователя (не админ).
+  Future<List<UserSubscription>> getMySubscriptions(String token) async {
+    final r = await _client
+        .get(
+          Uri.parse('$_baseUrl/api/me/subscriptions'),
+          headers: _jsonHeaders(token: token),
+        )
+        .timeout(const Duration(seconds: 20));
+
+    if (r.statusCode != 200) _throwFromResponse(r);
+
+    return _subscriptionsFromResponseBody(r.statusCode, r.body);
+  }
+
+  /// GET /api/admin/subscriptions — список абонементов (фильтры в query).
+  Future<List<UserSubscription>> getAdminSubscriptions(
+    String token, {
+    String? sportId,
+    String? clubId,
+    String? userId,
+    UserSubscriptionStatus? status,
+  }) async {
+    final q = <String, String>{};
+    if (sportId != null && sportId.isNotEmpty) q['sportId'] = sportId;
+    if (clubId != null && clubId.isNotEmpty) q['clubId'] = clubId;
+    if (userId != null && userId.isNotEmpty) q['userId'] = userId;
+    if (status != null) q['status'] = status.toApi();
+
+    final uri = Uri.parse('$_baseUrl/api/admin/subscriptions')
+        .replace(queryParameters: q.isEmpty ? null : q);
+
+    final r = await _client
+        .get(uri, headers: _jsonHeaders(token: token))
+        .timeout(const Duration(seconds: 20));
+
+    if (r.statusCode != 200) _throwFromResponse(r);
+
+    return _subscriptionsFromResponseBody(r.statusCode, r.body);
+  }
+
+  List<UserSubscription> _subscriptionsFromResponseBody(
+    int statusCode,
+    String body,
+  ) {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (_) {
+      throw PlayGoApiException(
+        statusCode,
+        'Некорректный JSON ответа subscriptions',
+      );
+    }
+    final rawList = _decodeSubscriptionList(decoded);
+    return rawList.map((e) {
+      if (e is! Map) {
+        throw PlayGoApiException(500, 'Ожидался объект абонемента в списке');
+      }
+      return UserSubscription.fromJson(Map<String, dynamic>.from(e));
+    }).toList();
+  }
+
+  /// PATCH /api/admin/subscriptions/:id/status — смена статуса (ACTIVE, EXPIRED, CANCELLED).
+  Future<void> patchAdminSubscriptionStatus(
+    String token,
+    String subscriptionId, {
+    required UserSubscriptionStatus status,
+  }) async {
+    final encoded = Uri.encodeComponent(subscriptionId);
+    final r = await _client
+        .patch(
+          Uri.parse('$_baseUrl/api/admin/subscriptions/$encoded/status'),
+          headers: _jsonHeaders(token: token),
+          body: jsonEncode({'status': status.toApi()}),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    if (r.statusCode != 200 && r.statusCode != 204) _throwFromResponse(r);
+  }
+
+  List<dynamic> _decodeSubscriptionList(dynamic decoded) {
+    if (decoded is List) return decoded;
+    if (decoded is Map<String, dynamic>) {
+      for (final key in ['data', 'items', 'subscriptions', 'results']) {
+        final v = decoded[key];
+        if (v is List) return v;
+      }
+    }
+    return const [];
+  }
+
+  bool _parseBlocked(Map<String, dynamic> map) {
+    final v = map['isBlocked'] ?? map['blocked'] ?? map['is_blocked'];
+    if (v is bool) return v;
+    if (v is String) return v.toLowerCase() == 'true';
+    final rest = map['restrictions'];
+    if (rest is Map) {
+      final b = rest['isBlocked'] ?? rest['blocked'];
+      if (b is bool) return b;
+    }
+    return false;
   }
 
   /// Ответ может быть `{ user: {...} }` или плоский объект пользователя.
@@ -286,6 +473,7 @@ class PlayGoApiClient {
       lastName: map['lastName']?.toString() ?? '',
       city: cityStr,
       photoPath: null,
+      isBlocked: _parseBlocked(map),
     );
   }
 }
@@ -301,18 +489,9 @@ class PlayGoApiException implements Exception {
 class AuthResult {
   final String accessToken;
   final UserModel user;
-  final String? refreshToken;
 
   AuthResult({
     required this.accessToken,
     required this.user,
-    this.refreshToken,
   });
-}
-
-class TokenRefreshResult {
-  final String accessToken;
-  final String? refreshToken;
-
-  TokenRefreshResult({required this.accessToken, this.refreshToken});
 }

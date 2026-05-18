@@ -6,11 +6,21 @@
 
 ---
 
+## Клиентские фичи (актуально с бэкендом CoachProfile / ecosystem)
+
+- [x] **Удаление аккаунта** — `DELETE /api/me`, опциональное тело `{ "password" }`; экран профиля → «Удалить аккаунт».
+- [x] **Профиль тренера** — `GET /api/coach-profiles/me`, сохранение `PUT /api/coach-profiles/me` (при необходимости замените на `PATCH` в `PlayGoApiClient`), фото `POST /api/coach-profiles/me/photo` (multipart поле **`photo`**), статика `/uploads/coaches/*`.
+- [x] **Экосистема** — `GET /api/ecosystem` (Bearer), клиент провайдер `ecosystemSnapshotProvider`; структура ответа — по договорённости с `routes/ecosystem.js`.
+- [x] **Клубы** — списки ответов `coaches[]` поддерживают и строки, и объекты (в т.ч. вложенный `user`).
+- Если пути на вашем сервере отличаются (camelCase vs kebab-case, `PATCH` вместо `PUT`), поправьте `PlayGoApiClient` один раз централизованно.
+
+---
+
 ## Этап 0 (текущий) — базовая связка
 
 - [x] Конфиг `API_BASE_URL`, по умолчанию `http://localhost:4000`
 - [x] `GET /api/health`
-- [x] Auth: `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh` (тело `{ "refreshToken" }` → новый `accessToken` и при необходимости `refreshToken`), `GET/PATCH /api/me`, пароль  
+- [x] Auth: `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh` (тело `{ "refreshToken" }` → новый `accessToken` и при необходимости `refreshToken`), `GET/PATCH /api/me`, `DELETE /api/me`, пароль  
   Ответы логина/регистрации могут включать `refreshToken` (или `refresh_token` / вложенный объект `tokens`) — клиент сохраняет его и при 401 обновляет сессию без повторного ввода пароля.
 - [x] `GET /api/matches` с query: `cityId`, `city`, `stadiumId`, `status` + Bearer
 - [x] `GET /api/matches/:id` (клиент готов к использованию на экране детали)

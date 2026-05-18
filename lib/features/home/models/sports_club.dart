@@ -24,4 +24,11 @@ class SportsClub {
   final String description;
   final double latitude;
   final double longitude;
+
+  /// Подпись для фильтра «город / район».
+  String get cityAreaLabel {
+    final d = district.trim();
+    if (d.isEmpty) return city;
+    return '$city / $d';
+  }
 }
