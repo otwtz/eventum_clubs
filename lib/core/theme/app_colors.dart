@@ -5,6 +5,9 @@ class AppColors {
   AppColors._();
 
   // --- Светлая тема ---
+  /// Текст и иконки AppBar (фон панели в светлой теме — [lightPrimary], чтобы белый был читаем).
+  static const Color appBarForeground = Colors.white;
+
   static const Color lightPrimary = Color(0xFFE10600);
   static const Color lightSecondary = Color(0xFFFF2D2D);
   static const Color lightTertiary = Color(0xFFFF6B6B);
@@ -13,7 +16,6 @@ class AppColors {
   static const Color lightOnPrimary = Colors.white;
   static const Color lightOnSecondary = Colors.white;
   static const Color lightOnSurface = Color(0xFF212121);
-  static const Color lightAppBarBg = Colors.white;
   static const Color lightNavSelected = Color(0xFFE10600);
   static const Color lightNavUnselected = Colors.grey;
   static const Color lightCardBg = Colors.white;

@@ -9,9 +9,11 @@ import 'package:latlong2/latlong.dart' hide Path;
 import '../../../../core/constants/shell_layout.dart';
 import '../../../../core/l10n/app_localizations.dart';
 import '../../../../core/providers/map_preferences_provider.dart';
+import '../../../../core/map/app_map_tile_provider.dart';
 import '../../../../core/utils/city_coordinates.dart';
 import '../../home/models/sports_club.dart';
 import '../../home/providers/sports_clubs_provider.dart';
+import '../../home/widgets/club_description_snippet.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -73,6 +75,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           clubs: clubs,
           initialCenter: initialCenter,
           initialZoom: initialZoom,
+          profileCity: userCity,
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, _) => _MapContent(
@@ -81,6 +84,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           errorMessage: err.toString(),
           initialCenter: initialCenter,
           initialZoom: initialZoom,
+          profileCity: userCity,
         ),
       ),
     );
@@ -94,6 +98,7 @@ class _MapContent extends StatefulWidget {
     this.errorMessage,
     required this.initialCenter,
     required this.initialZoom,
+    this.profileCity,
   });
 
   final AnimatedMapController animatedMapController;
@@ -102,11 +107,20 @@ class _MapContent extends StatefulWidget {
   final LatLng initialCenter;
   final double initialZoom;
 
+  /// Город из профиля для автоцентрирования после появления/смены.
+  final String? profileCity;
+
   @override
   State<_MapContent> createState() => _MapContentState();
 }
 
 class _MapContentState extends State<_MapContent> {
+  /// Единственный экземпляр тайлов: диск на мобильных/десктопе и общий HTTP.
+  final TileProvider _cartoTileProvider = resolveAppMapTileProvider();
+
+  /// Уже синхронизированный город из профиля (чтобы не перецентровать каждый rebuild).
+  String? _appliedProfileCityKey;
+
   LatLng? _userLocation;
   LatLng? _lastKnownForSort;
   bool _locationLoading = false;
@@ -119,7 +133,33 @@ class _MapContentState extends State<_MapContent> {
   @override
   void initState() {
     super.initState();
+    final raw = widget.profileCity?.trim();
+    if (raw != null &&
+        raw.isNotEmpty &&
+        CityCoordinates.recognizes(raw)) {
+      _appliedProfileCityKey = raw.toLowerCase();
+    }
     _loadLastKnownForNearby();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MapContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final raw = widget.profileCity?.trim();
+    if (raw == null || raw.isEmpty) return;
+    if (!CityCoordinates.recognizes(raw)) return;
+
+    final key = raw.toLowerCase();
+    if (key == _appliedProfileCityKey) return;
+
+    _appliedProfileCityKey = key;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.animatedMapController.centerOnPoint(
+        CityCoordinates.get(raw),
+        zoom: 11,
+      );
+    });
   }
 
   Future<void> _loadLastKnownForNearby() async {
@@ -226,113 +266,25 @@ class _MapContentState extends State<_MapContent> {
   }
 
   void _showMapClubPreview(BuildContext context, SportsClub club) {
-    final l10n = AppLocalizations.of(context)!;
-    final scheme = Theme.of(context).colorScheme;
     showModalBottomSheet<void>(
       context: context,
-      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (sheetContext) {
-        return SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              4,
-              20,
-              16 + ShellLayout.floatingNavClearancePadding(sheetContext),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.apartment_rounded, color: scheme.primary, size: 28),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        club.name,
-                        style: Theme.of(sheetContext).textTheme.titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    Chip(
-                      visualDensity: VisualDensity.compact,
-                      label: Text(club.sport),
-                    ),
-                    Chip(
-                      visualDensity: VisualDensity.compact,
-                      label: Text(club.cityAreaLabel),
-                    ),
-                    Chip(
-                      visualDensity: VisualDensity.compact,
-                      label: Text('${club.minAge}–${club.maxAge}'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.place_outlined, size: 20, color: scheme.primary),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        club.address,
-                        style: Theme.of(sheetContext).textTheme.bodyMedium,
-                      ),
-                    ),
-                  ],
-                ),
-                if (club.description.trim().isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    club.description,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          height: 1.35,
-                        ),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Text(
-                  l10n.mapClubBriefHint,
-                  style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () {
-                    Navigator.of(sheetContext).pop();
-                    if (context.mounted) {
-                      context.push('/club/${club.id}');
-                    }
-                  },
-                  child: Text(l10n.mapGoToSchedule),
-                ),
-              ],
-            ),
-          ),
+        return _MapClubPreviewSheet(
+          club: club,
+          routerContext: context,
         );
       },
     );
   }
 
-  /// Тёмная тема: нативно тёмные тайлы Carto. Не использовать
-  /// [darkModeTilesContainerBuilder] — он инвертирует цвета и портит уже тёмные тайлы.
+  /// Светлая тема: Carto light_all. Тёмная: dark_all. Тайлы кэшируются на диске (не web).
   Widget _buildTileLayer(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final tileProvider = NetworkTileProvider(silenceExceptions: true);
+    final layer = TileDisplay.instantaneous();
+    final panPrefetch = 2;
+    final keepPrefetch = 2;
     if (isDark) {
       return TileLayer(
         urlTemplate:
@@ -341,15 +293,23 @@ class _MapContentState extends State<_MapContent> {
         fallbackUrl:
             'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
         userAgentPackageName: 'com.eventum.play_go',
-        tileProvider: tileProvider,
+        tileProvider: _cartoTileProvider,
+        tileDisplay: layer,
+        panBuffer: panPrefetch,
+        keepBuffer: keepPrefetch,
       );
     }
     return TileLayer(
-      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      urlTemplate:
+          'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+      subdomains: const ['a', 'b', 'c', 'd'],
       fallbackUrl:
           'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
       userAgentPackageName: 'com.eventum.play_go',
-      tileProvider: tileProvider,
+      tileProvider: _cartoTileProvider,
+      tileDisplay: layer,
+      panBuffer: panPrefetch,
+      keepBuffer: keepPrefetch,
     );
   }
 
@@ -743,6 +703,344 @@ class _MapPinTipPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _MapPinTipPainter oldDelegate) =>
       oldDelegate.color != color;
+}
+
+/// Превью клуба на карте: draggable с snap 90%, без общего скролла; полное описание — только свой скролл.
+class _MapClubPreviewSheet extends StatefulWidget {
+  const _MapClubPreviewSheet({
+    required this.club,
+    required this.routerContext,
+  });
+
+  final SportsClub club;
+  final BuildContext routerContext;
+
+  @override
+  State<_MapClubPreviewSheet> createState() => _MapClubPreviewSheetState();
+}
+
+class _MapClubPreviewSheetState extends State<_MapClubPreviewSheet> {
+  static const double _snapInitial = 0.42;
+  static const double _snapExpanded = 0.9;
+
+  late final DraggableScrollableController _dragCtrl;
+  bool _fullDescription = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _dragCtrl = DraggableScrollableController();
+  }
+
+  @override
+  void dispose() {
+    _dragCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _expandSheetToSnap() {
+    return _dragCtrl.animateTo(
+      _snapExpanded,
+      duration: const Duration(milliseconds: 340),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Future<void> _collapseSheetToInitial() {
+    return _dragCtrl.animateTo(
+      _snapInitial,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final club = widget.club;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final mq = MediaQuery.of(context);
+    final bottomPad =
+        mq.padding.bottom + ShellLayout.floatingNavClearancePadding(context);
+    final routerCtx = widget.routerContext;
+    final desc = club.description.trim();
+    final hasDesc = desc.isNotEmpty;
+
+    final baseDesc = (theme.textTheme.bodySmall ?? const TextStyle()).copyWith(
+      color: scheme.onSurfaceVariant,
+      height: 1.35,
+    );
+    final linkStyle =
+        baseDesc.copyWith(fontWeight: FontWeight.w700, height: null);
+
+    return SizedBox(
+      height: mq.size.height,
+      child: DraggableScrollableSheet(
+        controller: _dragCtrl,
+        expand: false,
+        snap: true,
+        snapSizes: const [_snapInitial, _snapExpanded],
+        initialChildSize: _snapInitial,
+        minChildSize: 0.26,
+        maxChildSize: _snapExpanded,
+        builder: (sheetContext, scrollController) {
+          return Material(
+            color: scheme.surface,
+            elevation: 4,
+            shadowColor: Colors.black26,
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(16)),
+            clipBehavior: Clip.antiAlias,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final viewH = constraints.maxHeight;
+
+                Widget descriptionBlock() {
+                  if (!hasDesc) return const SizedBox.shrink();
+
+                  if (_fullDescription) {
+                    return Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: SingleChildScrollView(
+                              primary: false,
+                              physics: const BouncingScrollPhysics(),
+                              clipBehavior: Clip.hardEdge,
+                              child: Text(desc, style: baseDesc),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          TextButton(
+                            onPressed: () async {
+                              await _collapseSheetToInitial();
+                              if (!mounted) return;
+                              setState(() => _fullDescription = false);
+                            },
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              foregroundColor: scheme.onSurfaceVariant,
+                              alignment: Alignment.centerLeft,
+                            ),
+                            child: Text(
+                              l10n.clubDescriptionShowLess,
+                              style: linkStyle,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return Expanded(
+                    child: ClubDescriptionSnippet(
+                      description: club.description,
+                      showFullLabel: l10n.clubDescriptionShowFull,
+                      showLessLabel: l10n.clubDescriptionShowLess,
+                      onBeforeExpandSheet: _expandSheetToSnap,
+                      onExpandAlternative: () =>
+                          setState(() => _fullDescription = true),
+                    ),
+                  );
+                }
+
+                void goSchedule() {
+                  Navigator.of(sheetContext).pop();
+                  if (routerCtx.mounted) {
+                    routerCtx.push('/club/${club.id}');
+                  }
+                }
+
+                final body = SizedBox(
+                  height: viewH,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(20, 8, 20, bottomPad),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(2),
+                              color: scheme.outlineVariant,
+                            ),
+                          ),
+                        ),
+                        if (club.imageUrls.isNotEmpty) ...[
+                          _ClubMapPhotoCarousel(urls: club.imageUrls),
+                          const SizedBox(height: 14),
+                        ],
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.apartment_rounded,
+                              color: scheme.primary,
+                              size: 28,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                club.name,
+                                style: theme.textTheme.titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.place_outlined,
+                              size: 20,
+                              color: scheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                club.address,
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (hasDesc) const SizedBox(height: 10),
+                        if (hasDesc) descriptionBlock(),
+                        if (!hasDesc) const Expanded(child: SizedBox.shrink()),
+                        const SizedBox(height: 10),
+                        Text(
+                          l10n.mapClubBriefHint,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: goSchedule,
+                          child: Text(l10n.mapGoToSchedule),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+
+                return ListView(
+                  controller: scrollController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: EdgeInsets.zero,
+                  shrinkWrap: true,
+                  children: [body],
+                );
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Горизонтальная галерея фото клуба над карточкой на карте: одно изображение, свайп, точки.
+class _ClubMapPhotoCarousel extends StatefulWidget {
+  const _ClubMapPhotoCarousel({required this.urls});
+
+  final List<String> urls;
+
+  @override
+  State<_ClubMapPhotoCarousel> createState() => _ClubMapPhotoCarouselState();
+}
+
+class _ClubMapPhotoCarouselState extends State<_ClubMapPhotoCarousel> {
+  late final PageController _pageController = PageController();
+  int _index = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: AspectRatio(
+            aspectRatio: 16 / 10,
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: widget.urls.length,
+              onPageChanged: (i) => setState(() => _index = i),
+              itemBuilder: (context, i) {
+                final url = widget.urls[i];
+                return Image.network(
+                  url,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    final total = progress.expectedTotalBytes;
+                    return Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: total != null && total > 0
+                            ? progress.cumulativeBytesLoaded / total
+                            : null,
+                      ),
+                    );
+                  },
+                  errorBuilder: (_, _, _) => ColoredBox(
+                    color: scheme.surfaceContainerHighest,
+                    child: Center(
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        size: 40,
+                        color: scheme.outline,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(widget.urls.length, (i) {
+            final selected = i == _index;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: selected ? 8 : 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: selected
+                      ? scheme.primary
+                      : scheme.outlineVariant.withValues(alpha: 0.55),
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
 }
 
 const _defaultCenter = LatLng(55.7558, 37.6173);

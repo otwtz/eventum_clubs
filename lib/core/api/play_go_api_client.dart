@@ -37,6 +37,16 @@ class PlayGoApiClient {
     throw PlayGoApiException(code, message);
   }
 
+  /// Тело `{ "coachProfile": { ... } }` от `/api/me/coach-profile`.
+  Map<String, dynamic>? _unwrapCoachProfileMap(Map<String, dynamic> decoded) {
+    if (!decoded.containsKey('coachProfile')) return null;
+    final inner = decoded['coachProfile'];
+    if (inner == null) return null;
+    if (inner is Map<String, dynamic>) return Map<String, dynamic>.from(inner);
+    if (inner is Map) return Map<String, dynamic>.from(inner);
+    return null;
+  }
+
   /// GET /api/health
   Future<bool> health() async {
     try {
@@ -222,11 +232,11 @@ class PlayGoApiClient {
     }
   }
 
-  /// GET `/api/coach-profiles/me` — анкета тренера; 404 если ещё не создана.
+  /// GET `/api/me/coach-profile` — анкета в поле `coachProfile` или отсутствует.
   Future<CoachProfile?> getMyCoachProfile(String token) async {
     final r = await _client
         .get(
-          Uri.parse('$_baseUrl/api/coach-profiles/me'),
+          Uri.parse('$_baseUrl/api/me/coach-profile'),
           headers: _jsonHeaders(token: token),
         )
         .timeout(const Duration(seconds: 15));
@@ -234,21 +244,32 @@ class PlayGoApiClient {
     if (r.statusCode == 404) return null;
     if (r.statusCode != 200) _throwFromResponse(r);
 
-    final decoded = jsonDecode(r.body);
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(r.body);
+    } catch (_) {
+      throw PlayGoApiException(r.statusCode, 'Некорректный JSON coach profile');
+    }
     if (decoded is! Map) {
       throw PlayGoApiException(r.statusCode, 'Ожидался объект coach profile');
     }
-    return CoachProfile.fromJson(Map<String, dynamic>.from(decoded));
+    final map = Map<String, dynamic>.from(decoded);
+    final unwrapped = _unwrapCoachProfileMap(map);
+    if (unwrapped != null) return CoachProfile.fromJson(unwrapped);
+    if (map['id'] != null || map['userId'] != null) {
+      return CoachProfile.fromJson(map);
+    }
+    return null;
   }
 
-  /// PUT `/api/coach-profiles/me` — создать/обновить анкету.
+  /// PUT `/api/me/coach-profile` — создать/обновить анкету.
   Future<CoachProfile> upsertMyCoachProfile(
     String token,
     Map<String, dynamic> body,
   ) async {
     final r = await _client
         .put(
-          Uri.parse('$_baseUrl/api/coach-profiles/me'),
+          Uri.parse('$_baseUrl/api/me/coach-profile'),
           headers: _jsonHeaders(token: token),
           body: jsonEncode(body),
         )
@@ -270,10 +291,13 @@ class PlayGoApiClient {
     }
 
     final decoded = jsonDecode(r.body);
-    if (decoded is Map<String, dynamic>) {
-      return CoachProfile.fromJson(Map<String, dynamic>.from(decoded));
+    final extracted = decoded is Map
+        ? _unwrapCoachProfileMap(Map<String, dynamic>.from(decoded))
+        : null;
+    if (extracted != null) {
+      return CoachProfile.fromJson(extracted);
     }
-    if (decoded is Map) {
+    if (decoded is Map<String, dynamic>) {
       return CoachProfile.fromJson(Map<String, dynamic>.from(decoded));
     }
     final again = await getMyCoachProfile(token);
@@ -281,7 +305,7 @@ class PlayGoApiClient {
         CoachProfile(id: '', userId: '', bio: '');
   }
 
-  /// POST multipart `/api/coach-profiles/me/photo` — поле файла по умолчанию `photo`.
+  /// POST multipart `/api/me/coach-profile/photo` — имя файлового поля на сервере: `file`.
   ///
   /// Возвращает относительный путь загрузки (например `/uploads/coaches/...`), если есть в теле ответа.
   Future<String?> uploadCoachProfilePhoto(
@@ -289,13 +313,13 @@ class PlayGoApiClient {
     List<int> imageBytes,
     String filename,
   ) async {
-    final uri = Uri.parse('$_baseUrl/api/coach-profiles/me/photo');
+    final uri = Uri.parse('$_baseUrl/api/me/coach-profile/photo');
     final request = http.MultipartRequest('POST', uri);
     request.headers['Authorization'] = 'Bearer $token';
     request.headers['Accept'] = 'application/json';
     request.files.add(
       http.MultipartFile.fromBytes(
-        'photo',
+        'file',
         imageBytes,
         filename: filename,
       ),
@@ -317,6 +341,73 @@ class PlayGoApiClient {
       }
     } catch (_) {}
     return null;
+  }
+
+  /// Публичный спортивный справочник: `GET /api/sports`.
+  Future<List<({String code, String name})>> fetchSports() async {
+    final r = await _client
+        .get(Uri.parse('$_baseUrl/api/sports'), headers: _jsonHeaders())
+        .timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) _throwFromResponse(r);
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(r.body);
+    } catch (_) {
+      return const [];
+    }
+    if (decoded is! List) return const [];
+    final out = <({String code, String name})>[];
+    for (final e in decoded) {
+      if (e is! Map) continue;
+      final m = Map<String, dynamic>.from(e);
+      final code = m['code']?.toString() ?? '';
+      final name = m['name']?.toString() ?? '';
+      if (code.isEmpty && name.isEmpty) continue;
+      out.add((code: code, name: name.isEmpty ? code : name));
+    }
+    return out;
+  }
+
+  /// Карточки тренеров по городу клуба: `GET /api/coach-profiles/search`.
+  Future<List<CoachProfile>> searchCoachProfilesPublic({
+    String? cityName,
+    String? cityId,
+    String? sportCode,
+    int limit = 24,
+  }) async {
+    final q = <String, String>{
+      if (cityName != null && cityName.trim().isNotEmpty)
+        'city': cityName.trim(),
+      if (cityId != null && cityId.trim().isNotEmpty)
+        'cityId': cityId.trim(),
+      if (sportCode != null && sportCode.trim().isNotEmpty)
+        'sportCode': sportCode.trim(),
+      'limit': '${limit.clamp(1, 50)}',
+    };
+    final uri =
+        Uri.parse('$_baseUrl/api/coach-profiles/search').replace(
+      queryParameters: q.isEmpty ? null : q,
+    );
+    final r = await _client
+        .get(uri, headers: _jsonHeaders())
+        .timeout(const Duration(seconds: 20));
+    if (r.statusCode != 200) _throwFromResponse(r);
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(r.body);
+    } catch (_) {
+      throw PlayGoApiException(
+        r.statusCode,
+        'Некорректный JSON поиска тренеров',
+      );
+    }
+    if (decoded is! Map) return const [];
+    final raw = decoded['coaches'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((m) => CoachProfile.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
   }
 
   /// GET `/api/ecosystem` — агрегат экосистемы (структура задаётся сервером).

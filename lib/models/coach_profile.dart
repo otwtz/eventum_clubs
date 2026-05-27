@@ -1,4 +1,4 @@
-/// Анкета тренера (`GET/PATCH /api/coach-profiles/me`, фото в `/uploads/coaches`).
+/// Анкета тренера (`GET/PATCH /api/me/coach-profile`, поиск: `GET /api/coach-profiles/search`).
 class CoachProfile {
   const CoachProfile({
     required this.id,
@@ -9,6 +9,10 @@ class CoachProfile {
     this.photoUrl,
     this.specialization,
     this.experienceYears,
+    this.coachFirstName = '',
+    this.coachLastName = '',
+    this.clubCityDisplay = '',
+    this.clubSportName = '',
   });
 
   final String id;
@@ -20,6 +24,18 @@ class CoachProfile {
   final String? photoUrl;
   final String? specialization;
   final int? experienceYears;
+  final String coachFirstName;
+  final String coachLastName;
+  /// Город клуба из вложенного объекта `club` (список `/api/coach-profiles/search`).
+  final String clubCityDisplay;
+  final String clubSportName;
+
+  /// Отображаемое имя тренера (анкета или вложенный `user`).
+  String get trainerDisplayName {
+    final direct = '$coachFirstName $coachLastName'.trim();
+    if (direct.isNotEmpty) return direct;
+    return '';
+  }
 
   factory CoachProfile.fromJson(Map<String, dynamic> m) {
     String readId() =>
@@ -39,10 +55,28 @@ class CoachProfile {
     final clubRaw = m['club'];
     String? cid = m['clubId']?.toString();
     String? cname = m['clubName']?.toString();
+    String clubCity = '';
+    String clubSport = '';
     if (clubRaw is Map) {
       final cm = Map<String, dynamic>.from(clubRaw);
       cid ??= cm['id']?.toString();
       cname ??= cm['name']?.toString();
+      clubCity = cm['city']?.toString() ?? '';
+      final sp = cm['sport'];
+      if (sp is Map) {
+        clubSport = Map<String, dynamic>.from(sp)['name']?.toString() ?? '';
+      }
+    }
+
+    String fn = m['firstName']?.toString() ?? '';
+    String ln = m['lastName']?.toString() ?? '';
+    if (fn.isEmpty && ln.isEmpty) {
+      final u = m['user'];
+      if (u is Map) {
+        final um = Map<String, dynamic>.from(u);
+        fn = um['firstName']?.toString() ?? '';
+        ln = um['lastName']?.toString() ?? '';
+      }
     }
 
     int? exp;
@@ -55,6 +89,7 @@ class CoachProfile {
       id: readId(),
       userId: readUserId(),
       bio: m['bio']?.toString() ??
+          m['achievements']?.toString() ??
           m['about']?.toString() ??
           m['description']?.toString() ??
           '',
@@ -63,6 +98,10 @@ class CoachProfile {
       photoUrl: _readPhotoUrl(m),
       specialization: m['specialization']?.toString(),
       experienceYears: exp,
+      coachFirstName: fn.trim(),
+      coachLastName: ln.trim(),
+      clubCityDisplay: clubCity.trim(),
+      clubSportName: clubSport.trim(),
     );
   }
 

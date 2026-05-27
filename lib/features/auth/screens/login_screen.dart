@@ -86,7 +86,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.login),
+        title: Text(l10n.authorization),
         actions: const [LanguageButton()],
       ),
       body: SafeArea(
@@ -106,7 +106,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    l10n.login,
+                    l10n.authorization,
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -161,7 +161,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             width: 24,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : Text(l10n.login),
+                        : Text(l10n.signIn),
                   ),
                   const SizedBox(height: 16),
                   TextButton(

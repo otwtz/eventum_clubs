@@ -261,4 +261,10 @@ class CityCoordinates {
     final key = cityName.trim().toLowerCase();
     return _cities[key] ?? _defaultCenter;
   }
+
+  /// Есть ли в справочнике координаты для этого названия города (без падения на Москву по умолчанию).
+  static bool recognizes(String? cityName) {
+    if (cityName == null || cityName.trim().isEmpty) return false;
+    return _cities.containsKey(cityName.trim().toLowerCase());
+  }
 }

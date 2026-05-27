@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_colors.dart';
 
@@ -19,12 +20,25 @@ class AppTheme {
         onSurface: AppColors.lightOnSurface,
       ),
       scaffoldBackgroundColor: AppColors.lightScaffoldBg,
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         centerTitle: true,
         elevation: 0,
-        backgroundColor: AppColors.lightAppBarBg,
-        foregroundColor: AppColors.lightPrimary,
-        iconTheme: IconThemeData(color: AppColors.lightPrimary),
+        backgroundColor: AppColors.lightPrimary,
+        foregroundColor: AppColors.appBarForeground,
+        surfaceTintColor: Colors.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        iconTheme: const IconThemeData(color: AppColors.appBarForeground),
+        actionsIconTheme: const IconThemeData(color: AppColors.appBarForeground),
+        titleTextStyle: const TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w500,
+          color: AppColors.appBarForeground,
+        ),
+        toolbarTextStyle: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w400,
+          color: AppColors.appBarForeground,
+        ),
       ),
       cardTheme: CardThemeData(
         color: AppColors.lightCardBg,
@@ -61,12 +75,25 @@ class AppTheme {
         onSurface: AppColors.darkOnSurface,
       ),
       scaffoldBackgroundColor: AppColors.darkScaffoldBg,
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         centerTitle: true,
         elevation: 0,
         backgroundColor: AppColors.darkAppBarBg,
-        foregroundColor: AppColors.darkOnPrimary,
-        iconTheme: IconThemeData(color: AppColors.darkOnPrimary),
+        foregroundColor: AppColors.appBarForeground,
+        surfaceTintColor: Colors.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        iconTheme: const IconThemeData(color: AppColors.appBarForeground),
+        actionsIconTheme: const IconThemeData(color: AppColors.appBarForeground),
+        titleTextStyle: const TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w500,
+          color: AppColors.appBarForeground,
+        ),
+        toolbarTextStyle: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w400,
+          color: AppColors.appBarForeground,
+        ),
       ),
       cardTheme: CardThemeData(
         color: AppColors.darkCardBg,

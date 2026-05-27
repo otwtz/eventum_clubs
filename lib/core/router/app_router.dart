@@ -9,9 +9,10 @@ import '../../features/home/screens/club_detail_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/map/screens/map_screen.dart';
 import '../../features/news/screens/news_screen.dart';
-import '../../features/profile/screens/my_subscriptions_screen.dart';
+import '../../features/ai/screens/ai_coach_match_screen.dart';
+import '../../features/profile/screens/my_clubs_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
-import '../../features/coach/screens/coach_profile_screen.dart';
+import '../../features/profile/screens/profile_settings_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
@@ -44,6 +45,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state, child) => ShellScreen(child: child),
         routes: [
           GoRoute(
+            path: '/ai-coaches',
+            builder: (context, state) => const AiCoachMatchScreen(),
+          ),
+          GoRoute(
             path: '/club/:id',
             builder: (context, state) => ClubDetailScreen(
               clubId: state.pathParameters['id']!,
@@ -66,12 +71,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const ProfileScreen(),
           ),
           GoRoute(
-            path: '/profile/subscriptions',
-            builder: (context, state) => const MySubscriptionsScreen(),
+            path: '/profile/my-clubs',
+            builder: (context, state) => const MyClubsScreen(),
           ),
           GoRoute(
-            path: '/profile/coach',
-            builder: (context, state) => const CoachProfileScreen(),
+            path: '/profile/settings',
+            builder: (context, state) => const ProfileSettingsScreen(),
           ),
         ],
       ),

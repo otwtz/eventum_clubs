@@ -12,6 +12,7 @@ import '../../../../core/widgets/shell_nav_bar_spacer.dart';
 import '../models/club_details.dart';
 import '../providers/sports_clubs_provider.dart';
 import '../widgets/club_enroll_sheet.dart';
+import '../providers/favorite_clubs_provider.dart';
 
 class ClubDetailScreen extends ConsumerWidget {
   const ClubDetailScreen({super.key, required this.clubId});
@@ -36,15 +37,36 @@ class ClubDetailScreen extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final async = ref.watch(clubDetailProvider(clubId));
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+    return async.when(
+      data: (club) => Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.pop(),
+          ),
+          actions: [
+            Consumer(
+              builder: (context, ref, _) {
+                final fav = ref.watch(favoriteClubIdsProvider);
+                final isFav = fav.contains(clubId);
+                return IconButton(
+                  tooltip: isFav
+                      ? l10n.removeFromFavorites
+                      : l10n.addToFavorites,
+                  icon: Icon(
+                    isFav
+                        ? Icons.star_rounded
+                        : Icons.star_border_rounded,
+                  ),
+                  onPressed: () => ref
+                      .read(favoriteClubIdsProvider.notifier)
+                      .toggle(clubId),
+                );
+              },
+            ),
+          ],
         ),
-      ),
-      body: async.when(
-        data: (club) => _ClubDetailBody(
+        body: _ClubDetailBody(
           club: club,
           l10n: l10n,
           onEnroll: () {
@@ -73,8 +95,24 @@ class ClubDetailScreen extends ConsumerWidget {
             await launchUrl(uri, mode: LaunchMode.externalApplication);
           },
         ),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
+      ),
+      loading: () => Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.pop(),
+          ),
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, _) => Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.pop(),
+          ),
+        ),
+        body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(

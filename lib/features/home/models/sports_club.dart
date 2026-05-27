@@ -11,6 +11,7 @@ class SportsClub {
     required this.description,
     required this.latitude,
     required this.longitude,
+    this.imageUrls = const [],
   });
 
   final String id;
@@ -24,6 +25,8 @@ class SportsClub {
   final String description;
   final double latitude;
   final double longitude;
+  /// Абсолютные URL фото клуба с ленты/API.
+  final List<String> imageUrls;
 
   /// Подпись для фильтра «город / район».
   String get cityAreaLabel {

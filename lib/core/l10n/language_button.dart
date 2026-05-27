@@ -19,7 +19,9 @@ class LanguageButton extends ConsumerWidget {
         isRu ? 'EN' : 'RU',
         style: Theme.of(context).textTheme.labelLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.primary,
+              color:
+                  Theme.of(context).appBarTheme.foregroundColor ??
+                  Theme.of(context).colorScheme.primary,
             ),
       ),
       tooltip: l10n != null

@@ -10,7 +10,6 @@ import '../../../../core/l10n/app_localizations.dart';
 import '../../../../core/utils/api_error_message.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/utils/team_input_utils.dart';
-import '../../../../core/providers/theme_provider.dart';
 import '../../../../core/l10n/language_button.dart';
 import '../../../../core/widgets/shell_nav_bar_spacer.dart';
 import '../../../../models/user_model.dart';
@@ -139,7 +138,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
-    final themeMode = ref.watch(themeProvider);
     final l10n = AppLocalizations.of(context);
 
     return Scaffold(
@@ -147,6 +145,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ? AppBar(
               title: Text(l10n?.profile ?? 'Профиль'),
               leading: const LanguageButton(),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: l10n?.settings ?? 'Настройки',
+                  onPressed: () => context.push('/profile/settings'),
+                ),
+              ],
             )
           : null,
       body: authState.isAuthenticated && authState.user != null
@@ -156,7 +161,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 context,
                 ref,
                 authState.user!,
-                themeMode,
               ),
             )
           : const Center(
@@ -449,92 +453,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  static void _showDeleteAccount(BuildContext context, WidgetRef ref) {
-    final passwordCtrl = TextEditingController();
-    _showBlurOverlayDialog<void>(
-      context: context,
-      builder: (ctx) {
-        final ctxL10n = AppLocalizations.of(ctx)!;
-        final scheme = Theme.of(ctx).colorScheme;
-        return _overlayDialogCard(
-          context: ctx,
-          title: Text(ctxL10n.deleteAccountTitle),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(ctxL10n.deleteAccountBody),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passwordCtrl,
-                obscureText: true,
-                decoration: _overlayFieldDecoration(
-                  ctx,
-                  labelText: ctxL10n.deleteAccountPasswordHint,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: Text(ctxL10n.cancel),
-            ),
-            TextButton(
-              onPressed: () async {
-                Navigator.of(ctx).pop();
-                try {
-                  await ref.read(authProvider.notifier).deleteAccount(
-                        password:
-                            passwordCtrl.text.trim().isEmpty
-                                ? null
-                                : passwordCtrl.text.trim(),
-                      );
-                  if (context.mounted) {
-                    context.go('/login');
-                  }
-                } on PlayGoApiException catch (e) {
-                  if (context.mounted) {
-                    final l = AppLocalizations.of(context)!;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(friendlyApiError(e, l)),
-                        backgroundColor: Colors.red.shade900,
-                        behavior: SnackBarBehavior.floating,
-                        margin: ShellLayout.snackBarMargin(context),
-                      ),
-                    );
-                  }
-                } catch (_) {
-                  if (context.mounted) {
-                    final l = AppLocalizations.of(context)!;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(l.genericNetworkError),
-                        backgroundColor: Colors.red.shade900,
-                        behavior: SnackBarBehavior.floating,
-                        margin: ShellLayout.snackBarMargin(context),
-                      ),
-                    );
-                  }
-                }
-              },
-              child: Text(
-                ctxL10n.deleteAccountConfirm,
-                style: TextStyle(color: scheme.error),
-              ),
-            ),
-          ],
-        );
-      },
-    ).whenComplete(() => passwordCtrl.dispose());
-  }
-
   Widget _buildAuthenticatedProfile(
     BuildContext context,
     WidgetRef ref,
     UserModel user,
-    ThemeMode themeMode,
   ) {
     final l10n = AppLocalizations.of(context)!;
 
@@ -701,12 +623,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           elevation: 0.8,
           child: ListTile(
             leading: Icon(
-              Icons.card_membership_outlined,
+              Icons.psychology_outlined,
               color: Theme.of(context).colorScheme.primary,
             ),
-            title: Text(l10n.mySubscriptionsTitle),
+            title: Text(l10n.smartMatchTitle),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/profile/subscriptions'),
+            onTap: () => context.go('/ai-coaches'),
           ),
         ),
         const SizedBox(height: 16),
@@ -714,65 +636,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           elevation: 0.8,
           child: ListTile(
             leading: Icon(
-              Icons.sports_handball_outlined,
+              Icons.star_outline_rounded,
               color: Theme.of(context).colorScheme.primary,
             ),
-            title: Text(l10n.coachProfileTitle),
+            title: Text(l10n.myClubsTitle),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/profile/coach'),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          elevation: 0.8,
-          child: ListTile(
-            leading: Icon(
-              Icons.delete_forever_outlined,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            title: Text(
-              l10n.deleteAccountTitle,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-            onTap: () => _showDeleteAccount(context, ref),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          elevation: 0.8,
-          child: ListTile(
-            leading: Icon(
-              themeMode == ThemeMode.dark
-                  ? Icons.light_mode
-                  : Icons.dark_mode,
-            ),
-            title: Text(l10n.theme),
-            subtitle: Text(
-              themeMode == ThemeMode.dark ? l10n.themeDark : l10n.themeLight,
-            ),
-            trailing: Switch(
-              value: themeMode == ThemeMode.dark,
-              onChanged: (value) {
-                ref.read(themeProvider.notifier).toggleTheme();
-              },
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          elevation: 0.8,
-          child: ListTile(
-            leading: const Icon(Icons.logout, color: Colors.red),
-            title: Text(
-              l10n.logout,
-              style: TextStyle(color: Colors.red),
-            ),
-            onTap: () async {
-              await ref.read(authProvider.notifier).logout();
-              if (context.mounted) {
-                context.go('/login');
-              }
-            },
+            onTap: () => context.push('/profile/my-clubs'),
           ),
         ),
         const ShellNavBarSpacer(),

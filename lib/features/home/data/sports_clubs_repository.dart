@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../../../core/api/play_go_api_client.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/utils/api_media_url.dart';
 import '../models/club_details.dart';
 import '../models/sports_club.dart';
 
@@ -15,6 +16,55 @@ class SportsClubsRepository {
 
   Future<List<SportsClub>> fetchAvailableClubs() async {
     final uri = Uri.parse('${ApiConfig.baseUrl}/api/clubs');
+    final r = await _client
+        .get(uri, headers: const {'Accept': 'application/json'})
+        .timeout(const Duration(seconds: 20));
+
+    if (r.statusCode != 200) {
+      String message = 'Ошибка ${r.statusCode}';
+      try {
+        final body = jsonDecode(r.body);
+        if (body is Map) {
+          message = body['message']?.toString() ??
+              body['error']?.toString() ??
+              body['msg']?.toString() ??
+              message;
+        }
+      } catch (_) {}
+      throw PlayGoApiException(r.statusCode, message);
+    }
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(r.body);
+    } catch (_) {
+      throw PlayGoApiException(r.statusCode, 'Некорректный JSON ответа /api/clubs');
+    }
+
+    final rawList = _decodeClubList(decoded);
+    return rawList.map((e) {
+      if (e is! Map) {
+        throw PlayGoApiException(500, 'Ожидался объект клуба в списке');
+      }
+      return _parseClub(Map<String, dynamic>.from(e));
+    }).toList();
+  }
+
+  /// `GET /api/clubs` с фильтрами (город, вид спорта, возраст) — как в ecosystem.
+  Future<List<SportsClub>> fetchClubsFiltered({
+    String? city,
+    String? sportCode,
+    int? age,
+  }) async {
+    final q = <String, String>{};
+    final c = city?.trim() ?? '';
+    if (c.isNotEmpty) q['city'] = c;
+    final sc = sportCode?.trim() ?? '';
+    if (sc.isNotEmpty) q['sportCode'] = sc;
+    if (age != null && age > 0) q['age'] = '$age';
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/clubs')
+        .replace(queryParameters: q.isEmpty ? null : q);
     final r = await _client
         .get(uri, headers: const {'Accept': 'application/json'})
         .timeout(const Duration(seconds: 20));
@@ -267,7 +317,48 @@ class SportsClubsRepository {
       description: description,
       latitude: lat,
       longitude: lon,
+      imageUrls: _parseClubImageUrls(m),
     );
+  }
+
+  /// URL фото клуба из разных схем API (список, объекты, одиночное поле).
+  List<String> _parseClubImageUrls(Map<String, dynamic> m) {
+    final ordered = <String>[];
+    final seen = <String>{};
+
+    void addRaw(String? raw) {
+      final u = absoluteBackendMediaUrl(raw);
+      if (u == null || u.isEmpty || seen.contains(u)) return;
+      seen.add(u);
+      ordered.add(u);
+    }
+
+    addRaw(m['imageUrl']?.toString());
+    addRaw(m['photoUrl']?.toString());
+    addRaw(m['coverUrl']?.toString());
+
+    const listKeys = <String>[
+      'images',
+      'photos',
+      'gallery',
+      'attachments',
+      'imageUrls',
+      'photoUrls',
+    ];
+    for (final key in listKeys) {
+      final rawList = m[key];
+      if (rawList is! List) continue;
+      for (final item in rawList) {
+        if (item is String) {
+          addRaw(item);
+        } else if (item is Map) {
+          final im = Map<String, dynamic>.from(item);
+          addRaw(im['url']?.toString() ?? im['src']?.toString() ?? im['path']?.toString());
+        }
+      }
+    }
+
+    return ordered;
   }
 
   String _parseCity(Map<String, dynamic> m) {

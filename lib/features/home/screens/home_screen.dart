@@ -1,13 +1,16 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/constants/shell_layout.dart';
 import '../../../core/l10n/app_localizations.dart';
 import '../../../core/utils/api_error_message.dart';
 import '../../../core/widgets/shell_nav_bar_spacer.dart';
 import '../models/sports_club.dart';
+import '../providers/favorite_clubs_provider.dart';
 import '../providers/sports_clubs_provider.dart';
+import '../widgets/club_description_snippet.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -17,18 +20,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  String _selectedCityArea = _allFilterValue;
-  String _selectedSport = _allFilterValue;
-  String _selectedAge = _allFilterValue;
-
-  static const String _allFilterValue = 'all';
-  static const List<String> _ageOptions = <String>[
-    _allFilterValue,
-    '6-9',
-    '10-13',
-    '14-17',
-    '18+',
-  ];
+  /// `null` — шаг выбора вида спорта; иначе просмотр клубов только этой категории.
+  String? _selectedSportCategory;
 
   @override
   Widget build(BuildContext context) {
@@ -36,33 +29,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Eventum Clubs'),
-        actions: [
-          IconButton(
-            tooltip: 'Фильтры',
-            onPressed: () => _openFilters(context, clubsAsync.valueOrNull ?? const []),
-            icon: const Icon(Icons.tune),
-          ),
-        ],
+        leading: _selectedSportCategory != null
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'К категориям',
+                onPressed: () {
+                  setState(() => _selectedSportCategory = null);
+                },
+              )
+            : null,
+        title: Builder(
+          builder: (context) {
+            if (_selectedSportCategory != null) {
+              return Text(_selectedSportCategory!);
+            }
+            final l10n = AppLocalizations.of(context);
+            return Text(l10n?.categoriesScreenTitle ?? 'Категории');
+          },
+        ),
       ),
       body: clubsAsync.when(
         data: (clubs) {
-          final filtered = _applyFilters(clubs);
+          if (_selectedSportCategory == null) {
+            return _buildSportsCategoryStep(context, clubs);
+          }
+          final filtered = clubs
+              .where((c) => c.sport == _selectedSportCategory)
+              .toList();
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Text(
-                  'Доступные спортивные клубы',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              _ActiveFiltersRow(
-                cityArea: _selectedCityArea,
-                sport: _selectedSport,
-                age: _selectedAge,
-              ),
               Expanded(
                 child: filtered.isEmpty
                     ? Column(
@@ -86,14 +82,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                       ),
               ),
-              if (clubs.isNotEmpty && filtered.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                  child: Text(
-                    'Показано ${filtered.length} из ${clubs.length}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
               const ShellNavBarSpacer(),
             ],
           );
@@ -114,261 +102,240 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  List<String> _extractCityAreaOptions(List<SportsClub> clubs) {
-    final values = clubs.map((c) => c.cityAreaLabel).toSet().toList()
-      ..sort();
-    return <String>[_allFilterValue, ...values];
-  }
-
-  List<String> _extractSportOptions(List<SportsClub> clubs) {
-    final values = clubs.map((c) => c.sport).toSet().toList()..sort();
-    return <String>[_allFilterValue, ...values];
-  }
-
-  List<SportsClub> _applyFilters(List<SportsClub> clubs) {
-    return clubs.where((club) {
-      final cityAreaLabel = club.cityAreaLabel;
-      final cityMatches =
-          _selectedCityArea == _allFilterValue || _selectedCityArea == cityAreaLabel;
-      final sportMatches = _selectedSport == _allFilterValue || _selectedSport == club.sport;
-      final ageMatches = _isAgeMatches(club, _selectedAge);
-      return cityMatches && sportMatches && ageMatches;
-    }).toList();
-  }
-
-  bool _isAgeMatches(SportsClub club, String selectedAge) {
-    if (selectedAge == _allFilterValue) return true;
-    final range = switch (selectedAge) {
-      '6-9' => (6, 9),
-      '10-13' => (10, 13),
-      '14-17' => (14, 17),
-      '18+' => (18, 100),
-      _ => (0, 100),
-    };
-    final min = range.$1;
-    final max = range.$2;
-    return club.maxAge >= min && club.minAge <= max;
-  }
-
-  Future<void> _openFilters(BuildContext context, List<SportsClub> clubs) async {
-    final cityAreaOptions = _extractCityAreaOptions(clubs);
-    final sportOptions = _extractSportOptions(clubs);
-
-    var draftCityArea = _selectedCityArea;
-    var draftSport = _selectedSport;
-    var draftAge = _selectedAge;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setLocalState) {
-            return SafeArea(
+  Widget _buildSportsCategoryStep(BuildContext context, List<SportsClub> clubs) {
+    if (clubs.isEmpty) {
+      return Column(
+        children: [
+          Expanded(
+            child: Center(
               child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  16,
-                  8,
-                  16,
-                  16 +
-                      MediaQuery.viewInsetsOf(context).bottom +
-                      ShellLayout.floatingNavClearancePadding(context),
-                ),
+                padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Фильтры клубов',
-                      style: Theme.of(context).textTheme.titleLarge,
+                    Icon(
+                      Icons.inbox_outlined,
+                      size: 56,
+                      color: Theme.of(context).colorScheme.outline,
                     ),
                     const SizedBox(height: 16),
-                    _FilterDropdown(
-                      label: 'Город / район',
-                      value: draftCityArea,
-                      values: cityAreaOptions,
-                      allLabel: 'Все',
-                      onChanged: (value) => setLocalState(() => draftCityArea = value),
+                    Text(
+                      'Пока нет доступных клубов',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    const SizedBox(height: 12),
-                    _FilterDropdown(
-                      label: 'Вид спорта',
-                      value: draftSport,
-                      values: sportOptions,
-                      allLabel: 'Все',
-                      onChanged: (value) => setLocalState(() => draftSport = value),
-                    ),
-                    const SizedBox(height: 12),
-                    _FilterDropdown(
-                      label: 'Возраст пользователя',
-                      value: draftAge,
-                      values: _ageOptions,
-                      allLabel: 'Все',
-                      onChanged: (value) => setLocalState(() => draftAge = value),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              setLocalState(() {
-                                draftCityArea = _allFilterValue;
-                                draftSport = _allFilterValue;
-                                draftAge = _allFilterValue;
-                              });
-                            },
-                            child: const Text('Сбросить'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () {
-                              setState(() {
-                                _selectedCityArea = draftCityArea;
-                                _selectedSport = draftSport;
-                                _selectedAge = draftAge;
-                              });
-                              Navigator.of(sheetContext).pop();
-                            },
-                            child: const Text('Применить'),
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        ref.invalidate(sportsClubsFeedProvider);
+                        await ref.read(sportsClubsFeedProvider.future);
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Обновить'),
                     ),
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
+            ),
+          ),
+          const ShellNavBarSpacer(),
+        ],
+      );
+    }
+
+    final entries = _sportCategoryEntries(clubs);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(sportsClubsFeedProvider);
+              await ref.read(sportsClubsFeedProvider.future);
+            },
+            child: LayoutBuilder(
+              builder: (context, c) {
+                const hPad = 16.0;
+                const spacing = 12.0;
+                final inner =
+                    math.max(0.0, c.maxWidth - hPad * 2);
+                final halfW = math.max(
+                  0.0,
+                  (inner - spacing) / 2,
+                );
+                final cellH =
+                    halfW > 0 ? halfW / 2.4 : 56.0;
+                final rowCount = (entries.length + 1) ~/ 2;
+
+                Widget categoryTile(MapEntry<String, int> e) {
+                  return SizedBox(
+                    height: cellH,
+                    width: double.infinity,
+                    child: _SportCategoryTile(
+                      sport: e.key,
+                      onTap: () {
+                        setState(() => _selectedSportCategory = e.key);
+                      },
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  itemCount: rowCount,
+                  itemBuilder: (context, rowIdx) {
+                    final i = rowIdx * 2;
+                    final isLastRow = rowIdx == rowCount - 1;
+                    final hasPairRight = i + 1 < entries.length;
+
+                    final row = hasPairRight
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: categoryTile(entries[i]),
+                              ),
+                              const SizedBox(width: spacing),
+                              Expanded(
+                                child: categoryTile(entries[i + 1]),
+                              ),
+                            ],
+                          )
+                        : categoryTile(entries[i]);
+
+                    return Padding(
+                      padding: EdgeInsets.only(
+                          bottom: isLastRow ? 0 : spacing),
+                      child: row,
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+        const ShellNavBarSpacer(),
+      ],
     );
+  }
+
+  /// Список пар (вид спорта, число клубов), по алфавиту по названию спорта.
+  List<MapEntry<String, int>> _sportCategoryEntries(List<SportsClub> clubs) {
+    final counts = <String, int>{};
+    for (final c in clubs) {
+      counts[c.sport] = (counts[c.sport] ?? 0) + 1;
+    }
+    final list = counts.entries.toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+    return list;
   }
 }
 
-class _FilterDropdown extends StatelessWidget {
-  const _FilterDropdown({
-    required this.label,
-    required this.value,
-    required this.values,
-    required this.allLabel,
-    required this.onChanged,
+class _SportCategoryTile extends StatelessWidget {
+  const _SportCategoryTile({
+    required this.sport,
+    required this.onTap,
   });
 
-  final String label;
-  final String value;
-  final List<String> values;
-  final String allLabel;
-  final ValueChanged<String> onChanged;
+  final String sport;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final selectedValue = values.contains(value) ? value : values.first;
-    return DropdownButtonFormField<String>(
-      initialValue: selectedValue,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
+    final scheme = Theme.of(context).colorScheme;
+    final radius = BorderRadius.circular(12);
+    return Card(
+      elevation: 0,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(
+          color: scheme.outlineVariant.withValues(alpha: 0.05),
+        ),
       ),
-      items: values
-          .map(
-            (item) => DropdownMenuItem<String>(
-              value: item,
-              child: Text(item == _HomeScreenState._allFilterValue ? allLabel : item),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: radius,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Text(
+              sport,
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
-          )
-          .toList(),
-      onChanged: (value) {
-        if (value != null) onChanged(value);
-      },
+          ),
+        ),
+      ),
     );
   }
 }
 
-class _ClubCard extends StatelessWidget {
+class _ClubCard extends ConsumerWidget {
   const _ClubCard({required this.club});
 
   final SportsClub club;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final favorites = ref.watch(favoriteClubIdsProvider);
+    final isFavorite = favorites.contains(club.id);
+
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.push('/club/${club.id}'),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-            Text(
-              club.name,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+              child: InkWell(
+                onTap: () => context.push('/club/${club.id}'),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        club.name,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 8),
+                      ClubDescriptionSnippet(
+                        description: club.description,
+                        showFullLabel: l10n.clubDescriptionShowFull,
+                        showLessLabel: l10n.clubDescriptionShowLess,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        club.address,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
                   ),
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                Chip(label: Text(club.sport)),
-                Chip(label: Text(club.cityAreaLabel)),
-                Chip(label: Text('${club.minAge}-${club.maxAge} лет')),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(club.address, style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 6),
-            Text(
-              club.description,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+            IconButton(
+              tooltip: isFavorite
+                  ? l10n.removeFromFavorites
+                  : l10n.addToFavorites,
+              icon: Icon(
+                isFavorite ? Icons.star_rounded : Icons.star_border_rounded,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              onPressed: () => ref
+                  .read(favoriteClubIdsProvider.notifier)
+                  .toggle(club.id),
             ),
           ],
         ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ActiveFiltersRow extends StatelessWidget {
-  const _ActiveFiltersRow({
-    required this.cityArea,
-    required this.sport,
-    required this.age,
-  });
-
-  final String cityArea;
-  final String sport;
-  final String age;
-
-  @override
-  Widget build(BuildContext context) {
-    final filters = <String>[
-      cityArea == _HomeScreenState._allFilterValue ? 'Город/район: все' : cityArea,
-      sport == _HomeScreenState._allFilterValue ? 'Спорт: все' : sport,
-      age == _HomeScreenState._allFilterValue ? 'Возраст: все' : age,
-    ];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: filters
-            .map(
-              (filter) => Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Chip(label: Text(filter)),
-              ),
-            )
-            .toList(),
-      ),
     );
   }
 }
@@ -391,7 +358,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              'Клубов по выбранным фильтрам не найдено',
+              'В этой категории пока нет клубов',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleMedium,
             ),

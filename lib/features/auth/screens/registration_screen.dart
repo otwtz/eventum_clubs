@@ -38,8 +38,7 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   String? _photoPath;
-  bool _agreeToLicense = false;
-  bool _agreeToPrivacy = false;
+  bool _agreeLegalDocuments = false;
   bool _confirmAdult = false;
   final _formKey1 = GlobalKey<FormState>();
   final _formKey2 = GlobalKey<FormState>();
@@ -170,12 +169,12 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
                   _Step3(
                     l10n: l10n,
                     photoPath: _photoPath,
-                    agreeToLicense: _agreeToLicense,
-                    agreeToPrivacy: _agreeToPrivacy,
+                    agreeLegal: _agreeLegalDocuments,
+                    onAgreeLegal: (v) =>
+                        setState(() => _agreeLegalDocuments = v),
                     confirmAdult: _confirmAdult,
-                    onAgreeToLicense: (v) => setState(() => _agreeToLicense = v),
-                    onAgreeToPrivacy: (v) => setState(() => _agreeToPrivacy = v),
-                    onConfirmAdult: (v) => setState(() => _confirmAdult = v),
+                    onConfirmAdult: (v) =>
+                        setState(() => _confirmAdult = v),
                     onPickPhoto: _pickPhoto,
                     onBack: _prevStep,
                     onSubmit: _submit,
@@ -381,11 +380,9 @@ class _Step3 extends StatelessWidget {
   const _Step3({
     required this.l10n,
     required this.photoPath,
-    required this.agreeToLicense,
-    required this.agreeToPrivacy,
+    required this.agreeLegal,
+    required this.onAgreeLegal,
     required this.confirmAdult,
-    required this.onAgreeToLicense,
-    required this.onAgreeToPrivacy,
     required this.onConfirmAdult,
     required this.onPickPhoto,
     required this.onBack,
@@ -395,11 +392,9 @@ class _Step3 extends StatelessWidget {
 
   final AppLocalizations l10n;
   final String? photoPath;
-  final bool agreeToLicense;
-  final bool agreeToPrivacy;
+  final bool agreeLegal;
+  final ValueChanged<bool> onAgreeLegal;
   final bool confirmAdult;
-  final ValueChanged<bool> onAgreeToLicense;
-  final ValueChanged<bool> onAgreeToPrivacy;
   final ValueChanged<bool> onConfirmAdult;
   final VoidCallback onPickPhoto;
   final VoidCallback onBack;
@@ -416,7 +411,7 @@ class _Step3 extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final canSubmit = agreeToLicense && agreeToPrivacy && confirmAdult;
+    final canSubmit = agreeLegal && confirmAdult;
 
     return Center(
       child: SingleChildScrollView(
@@ -462,21 +457,12 @@ class _Step3 extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            _AgreementCheckbox(
-              value: agreeToLicense,
-              onChanged: onAgreeToLicense,
-              prefix: l10n.agreeToLicense,
-              linkText: l10n.licenseTermsLink,
-              linkUrl: _kLicenseUrl,
-              onOpenUrl: _openUrl,
-            ),
-            const SizedBox(height: 12),
-            _AgreementCheckbox(
-              value: agreeToPrivacy,
-              onChanged: onAgreeToPrivacy,
-              prefix: l10n.agreeToPrivacy,
-              linkText: l10n.privacyPolicyLink,
-              linkUrl: _kPrivacyUrl,
+            _CombinedLegalCheckbox(
+              value: agreeLegal,
+              onChanged: onAgreeLegal,
+              l10n: l10n,
+              licenseUrl: _kLicenseUrl,
+              privacyUrl: _kPrivacyUrl,
               onOpenUrl: _openUrl,
             ),
             const SizedBox(height: 12),
@@ -540,26 +526,57 @@ class _Step3 extends StatelessWidget {
   }
 }
 
-class _AgreementCheckbox extends StatelessWidget {
-  const _AgreementCheckbox({
+class _CombinedLegalCheckbox extends StatefulWidget {
+  const _CombinedLegalCheckbox({
     required this.value,
     required this.onChanged,
-    required this.prefix,
-    required this.linkText,
-    required this.linkUrl,
+    required this.l10n,
+    required this.licenseUrl,
+    required this.privacyUrl,
     required this.onOpenUrl,
   });
 
   final bool value;
   final ValueChanged<bool> onChanged;
-  final String prefix;
-  final String linkText;
-  final String linkUrl;
+  final AppLocalizations l10n;
+  final String licenseUrl;
+  final String privacyUrl;
   final Future<void> Function(String url) onOpenUrl;
+
+  @override
+  State<_CombinedLegalCheckbox> createState() =>
+      _CombinedLegalCheckboxState();
+}
+
+class _CombinedLegalCheckboxState extends State<_CombinedLegalCheckbox> {
+  late final TapGestureRecognizer _licenseTap;
+  late final TapGestureRecognizer _privacyTap;
+
+  @override
+  void initState() {
+    super.initState();
+    _licenseTap = TapGestureRecognizer()
+      ..onTap = () => widget.onOpenUrl(widget.licenseUrl);
+    _privacyTap = TapGestureRecognizer()
+      ..onTap = () => widget.onOpenUrl(widget.privacyUrl);
+  }
+
+  @override
+  void dispose() {
+    _licenseTap.dispose();
+    _privacyTap.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final linkStyle = TextStyle(
+      color: theme.colorScheme.primary,
+      decoration: TextDecoration.underline,
+      decorationColor: theme.colorScheme.primary,
+    );
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -567,8 +584,8 @@ class _AgreementCheckbox extends StatelessWidget {
           width: 24,
           height: 24,
           child: Checkbox(
-            value: value,
-            onChanged: (v) => onChanged(v ?? false),
+            value: widget.value,
+            onChanged: (v) => widget.onChanged(v ?? false),
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
         ),
@@ -582,17 +599,10 @@ class _AgreementCheckbox extends StatelessWidget {
                   color: theme.colorScheme.onSurface,
                 ),
                 children: [
-                  TextSpan(text: prefix),
-                  TextSpan(
-                    text: linkText,
-                    style: TextStyle(
-                      color: theme.colorScheme.primary,
-                      decoration: TextDecoration.underline,
-                      decorationColor: theme.colorScheme.primary,
-                    ),
-                    recognizer: TapGestureRecognizer()
-                      ..onTap = () => onOpenUrl(linkUrl),
-                  ),
+                  TextSpan(text: widget.l10n.legalAcceptLead),
+                  TextSpan(text: widget.l10n.legalAcceptLicenseLink, style: linkStyle, recognizer: _licenseTap),
+                  TextSpan(text: widget.l10n.legalAcceptMiddle),
+                  TextSpan(text: widget.l10n.legalAcceptPrivacyLink, style: linkStyle, recognizer: _privacyTap),
                 ],
               ),
             ),

@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 abstract final class ShellLayout {
   ShellLayout._();
 
-  /// Вертикальные отступы внутри панели + иконка + подпись (приблизительно).
-  static const double floatingNavBarHeight = 72;
+  /// Высота плашки навигации + кнопка AI в одну линию (иконка + подпись у выбранной вкладки).
+  static const double floatingNavBarHeight = 74;
 
   /// Нижний отступ Positioned у плавающей панели в [ShellScreen].
   static const double floatingNavBottomMargin = 16;
@@ -21,6 +21,12 @@ abstract final class ShellLayout {
         floatingNavBarHeight +
         contentGapAboveNav;
   }
+
+  /// Круглая кнопка AI: та же высота, что у плашки навбара ([ShellScreen]).
+  static const double aiCoachFabOuterSize = floatingNavBarHeight;
+
+  /// Зазор между правым краем капсулы навбара и кнопкой AI.
+  static const double aiCoachFabGapAfterNav = 10;
 
   /// Нижний inset для snackbar и пр. (как [navBarSpacerHeight]).
   static double contentBottomPadding(BuildContext context) =>

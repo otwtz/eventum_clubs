@@ -4,7 +4,7 @@ import '../../../core/api/play_go_api_client.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../models/coach_profile.dart';
 
-/// Анкета тренера: `GET /api/coach-profiles/me`.
+/// Анкета тренера: `GET /api/me/coach-profile`.
 final myCoachProfileProvider =
     FutureProvider.autoDispose<CoachProfile?>((ref) async {
   final auth = ref.watch(authProvider);
